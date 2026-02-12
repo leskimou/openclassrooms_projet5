@@ -1,7 +1,7 @@
 import pandas as pd
 from skopt.space import Integer, Real, Categorical
 from sklearn.metrics import make_scorer
-from utils import opti_pipeline
+from src.utils import opti_pipeline
 from imblearn.ensemble import BalancedRandomForestClassifier
 
 
