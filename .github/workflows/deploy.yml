@@ -1,4 +1,4 @@
-name: Deploy to Hugging Face
+name: Push to Hugging Face
 
 on:
   push:
@@ -6,13 +6,18 @@ on:
       - main
 
 jobs:
-  deploy:
+  push-to-hf:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v3
-      - name: Push to HF
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push to Hugging Face
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           git remote add hf https://leskimou:${HF_TOKEN}@huggingface.co/spaces/leskimou/openclassrooms_projet5
-          git push hf main --force
+          git push --force hf main
