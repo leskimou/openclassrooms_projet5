@@ -80,25 +80,6 @@ def _load_input_schema(schema_path: Path = SCHEMA_PATH) -> dict[str, Any]:
     return raw
 
 
-def _build_schema_table(cols: list[str], features: dict[str, Any]) -> pd.DataFrame:
-    """
-    Construit un petit tableau (variable, type, modalités) affiché dans Gradio.
-    """
-    rows = []
-    for col in cols:
-        f = features[col]
-        f_type = str(f.get("type", "text"))
-        mods = f.get("choices", []) if f_type == "category" else []
-        rows.append(
-            {
-                "variable": col,
-                "type": f_type,
-                "modalités possibles": ", ".join(map(str, mods)) if mods else "",
-            }
-        )
-    return pd.DataFrame(rows)
-
-
 def _expected_model_columns() -> list[str]:
     """
     Récupère les colonnes attendues par le modèle.
@@ -175,22 +156,10 @@ def _build_gradio_app() -> gr.Blocks:
     features: dict[str, Any] = schema["features"]
 
     # Ordre d’affichage = columns_order (et on garde seulement celles présentes dans features)
-    columns_order = schema.get("columns_order") or list(features.keys())
+    columns_order = schema.get("columns_order")
     cols_ui = [c for c in columns_order if c in features]
 
-    # (Optionnel) Vérif : est-ce que le schéma couvre les colonnes attendues par le modèle ?
-    # Ici on ne bloque pas forcément, mais tu peux décider de lever une erreur si tu veux.
-    expected = _expected_model_columns()
-    if expected:
-        missing_in_schema = [c for c in expected if c not in features]
-        if missing_in_schema:
-            # On print pour aider au debug (visible dans la console uvicorn)
-            print(
-                "[WARN] input_schema.json ne contient pas toutes les colonnes attendues par le modèle : "
-                + ", ".join(missing_in_schema)
-            )
-
-    # Defaults UI (puisqu’il n’y a pas de "default" dans le JSON)
+    # Defaults UI
     defaults: dict[str, Any] = {}
     for c in cols_ui:
         t = str(features[c].get("type", "text"))
@@ -199,10 +168,6 @@ def _build_gradio_app() -> gr.Blocks:
             defaults[c] = ch[0] if ch else None
         elif t == "number":
             defaults[c] = None
-        else:
-            defaults[c] = ""
-
-    schema_df = _build_schema_table(cols_ui, features)
 
     def predict_from_form(*values):
         # Reconstruit un record à partir des champs Gradio
@@ -217,10 +182,8 @@ def _build_gradio_app() -> gr.Blocks:
         return proba, label
 
     with gr.Blocks() as demo:
-        gr.Markdown("## Prédiction de départ (UI Gradio)")
-        gr.Markdown("### Schéma des entrées (type + modalités)")
-        gr.Dataframe(schema_df, interactive=False, wrap=True)
-
+        gr.Markdown("## Prédiction de départ d'un employé (UI Gradio)")
+      
         # Génère 1 composant par variable selon son type
         inputs = []
         for col in cols_ui:
@@ -232,8 +195,6 @@ def _build_gradio_app() -> gr.Blocks:
             elif t == "category":
                 # Choix unique parmi des modalités (plus simple et fiable pour ton modèle)
                 inputs.append(gr.Dropdown(choices=f.get("choices", []), value=defaults[col], label=col))
-            else:
-                inputs.append(gr.Textbox(value=str(defaults[col]), label=col))
 
         btn = gr.Button("Prédire")
         out_proba = gr.Number(label="Probabilité de départ (classe 1)")
