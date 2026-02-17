@@ -71,7 +71,18 @@ def build_dataset(data_dir: Path = DATA_DIR) -> pd.DataFrame:
 
 
 def get_engine_from_env():
-    load_dotenv(dotenv_path=ROOT_DIR / ".env")
+    env_file = os.getenv("ENV_FILE")
+
+    if env_file:
+        dotenv_path = Path(env_file)
+        if not dotenv_path.is_absolute():
+            dotenv_path = ROOT_DIR / dotenv_path
+    else:
+        dotenv_path = ROOT_DIR / "confs" / "dev" / ".env.dev"
+        if not dotenv_path.exists():
+            dotenv_path = ROOT_DIR / ".env"
+
+    load_dotenv(dotenv_path=dotenv_path)
 
     url = URL.create(
         drivername="postgresql+psycopg2",
