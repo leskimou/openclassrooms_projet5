@@ -20,8 +20,10 @@ from typing import Dict, List, Union, Any
 import joblib
 import pandas as pd
 import gradio as gr
-from fastapi import FastAPI
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi import FastAPI, Request
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from src.create_db import get_engine_from_env, init_api_logging_tables, log_request_and_prediction
 
 
 # ---------------------------------------------------------------------
@@ -36,19 +38,111 @@ SCHEMA_PATH = ARTIFACTS_DIR / "input_schema.json"
 model = joblib.load(MODEL_PATH)
 
 
+def _normalize_input_schema(raw_schema: dict[str, Any]) -> dict[str, Any]:
+    """
+    Normalise le schéma d'entrée :
+    - corrige la clé "colums_order" -> "columns_order" si besoin
+    - supprime les espaces parasites sur les noms de features
+    - garantit que columns_order contient toutes les features
+    """
+    features_raw = raw_schema.get("features", {})
+    if not isinstance(features_raw, dict):
+        raise ValueError("Le schéma d'entrée est invalide : 'features' doit être un objet.")
+
+    features: dict[str, Any] = {}
+    for feature_name, spec in features_raw.items():
+        clean_name = str(feature_name).strip()
+        features[clean_name] = spec
+
+    columns_order_raw = raw_schema.get("columns_order") or raw_schema.get("colums_order") or list(features.keys())
+
+    columns_order: list[str] = []
+    for col in columns_order_raw:
+        clean_col = str(col).strip()
+        if clean_col in features and clean_col not in columns_order:
+            columns_order.append(clean_col)
+
+    for feature_name in features:
+        if feature_name not in columns_order:
+            columns_order.append(feature_name)
+
+    return {
+        "features": features,
+        "columns_order": columns_order,
+    }
+
+
+INPUT_SCHEMA: dict[str, Any] = _normalize_input_schema(
+    json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+)
+FEATURE_SPECS: dict[str, Any] = INPUT_SCHEMA["features"]
+REQUIRED_FEATURES_ORDER: list[str] = list(FEATURE_SPECS.keys())
+REQUIRED_FEATURES_SET: set[str] = set(REQUIRED_FEATURES_ORDER)
+
+
 # ---------------------------------------------------------------------
 # 2) Schémas Pydantic pour l’API /predict
 # ---------------------------------------------------------------------
 
 # Valeurs acceptées dans le JSON d'entrée
-Value = Union[str, int, float, bool, None]
-
+Value = Union[str, int, float]
 
 class PredictRequest(BaseModel):
     # "extra=forbid" => refuse les champs inattendus au niveau du modèle Pydantic
     model_config = ConfigDict(extra="forbid")
     # records = liste de lignes (chaque ligne = dict feature->value)
     records: List[Dict[str, Value]] = Field(..., min_length=1)
+
+    @model_validator(mode="after")
+    def validate_records_against_input_schema(self) -> "PredictRequest":
+        errors: list[str] = []
+
+        for idx, record in enumerate(self.records):
+            missing_features = [feature for feature in REQUIRED_FEATURES_ORDER if feature not in record]
+            extra_features = [feature for feature in record if feature not in REQUIRED_FEATURES_SET]
+
+            if missing_features:
+                errors.append(f"records[{idx}] features manquantes: {missing_features}")
+            if extra_features:
+                errors.append(f"records[{idx}] features inattendues: {extra_features}")
+
+            if missing_features:
+                # Impossible de vérifier les types pour les champs absents
+                continue
+
+            for feature, spec in FEATURE_SPECS.items():
+                expected_type = str(spec.get("type", "")).strip().lower()
+                value = record[feature]
+
+                if expected_type == "number":
+                    if isinstance(value, bool) or not isinstance(value, (int, float)):
+                        errors.append(
+                            f"records[{idx}].{feature} doit être un nombre (int|float), reçu {type(value).__name__}"
+                        )
+                    continue
+
+                if expected_type == "category":
+                    if not isinstance(value, str):
+                        errors.append(
+                            f"records[{idx}].{feature} doit être une chaîne (str), reçu {type(value).__name__}"
+                        )
+                        continue
+
+                    choices = spec.get("choices", []) or []
+                    if choices and value not in choices:
+                        errors.append(
+                            f"records[{idx}].{feature} doit être dans {choices}, reçu {value!r}"
+                        )
+                    continue
+
+                errors.append(
+                    f"records[{idx}].{feature} a un type de schéma non supporté: {expected_type!r}"
+                )
+
+        if errors:
+            raise ValueError("Validation payload invalide: " + " | ".join(errors))
+
+        return self
 
 
 class PredictResponse(BaseModel):
@@ -64,28 +158,13 @@ class PredictResponse(BaseModel):
 # ---------------------------------------------------------------------
 
 def _load_input_schema(schema_path: Path = SCHEMA_PATH) -> dict[str, Any]:
-    if not schema_path.exists():
-        raise FileNotFoundError(
-            f"Schema introuvable: {schema_path}. "
-            f"Crée {schema_path.as_posix()} pour définir les champs Gradio."
-        )
-
-    raw = json.loads(schema_path.read_text(encoding="utf-8"))
-
-    if "features" not in raw or not isinstance(raw["features"], dict):
-        raise ValueError('input_schema.json doit contenir un objet "features".')
-
-    # Normalisation
-    raw.setdefault("columns_order", list(raw["features"].keys()))
-    return raw
+    _ = schema_path
+    return INPUT_SCHEMA
 
 
 def _expected_model_columns() -> list[str]:
     """
-    Récupère les colonnes attendues par le modèle.
-
-    Quand on entraîne une pipeline scikit-learn avec un DataFrame, certains estimateurs
-    exposent feature_names_in_. Ça permet de reconstruire X dans le bon ordre.
+    Récupère les colonnes attendues par le modèle avec feature_names_in_. Ça permet de reconstruire X dans le bon ordre.
     """
     if hasattr(model, "feature_names_in_"):
         return [str(c) for c in list(getattr(model, "feature_names_in_"))]
@@ -105,20 +184,26 @@ def _to_model_dataframe(record: dict[str, Any]) -> pd.DataFrame:
     """
     expected = _expected_model_columns()
 
-    # Nettoyage léger : convertit "" -> None (souvent plus propre pour les pipelines)
-    cleaned = {k: (None if v == "" else v) for k, v in record.items()}
-
     if expected:
-        aligned = {col: cleaned.get(col, None) for col in expected}
+        aligned = {col: record.get(col, None) for col in expected}
         return pd.DataFrame([aligned], columns=expected)
 
-    return pd.DataFrame([cleaned])
+    return pd.DataFrame([record])
 
 
 # ---------------------------------------------------------------------
 # 4) App FastAPI
 # ---------------------------------------------------------------------
 app = FastAPI()
+
+_db_engine = None
+
+
+@app.on_event("startup")
+def _startup_db() -> None:
+    global _db_engine
+    _db_engine = get_engine_from_env()
+    init_api_logging_tables(_db_engine)
 
 @app.get("/health")
 def health():
@@ -127,7 +212,7 @@ def health():
 
 
 @app.post("/predict", response_model=PredictResponse)
-def predict(payload: PredictRequest):
+def predict(payload: PredictRequest, request: Request):
     # Convertit la liste de records en DataFrame en respectant les colonnes attendues
     expected = _expected_model_columns()
     if expected:
@@ -135,11 +220,20 @@ def predict(payload: PredictRequest):
         rows = [{col: rec.get(col, None) for col in expected} for rec in payload.records]
         X = pd.DataFrame(rows, columns=expected)
     else:
-        # Fallback : DataFrame direct (moins sûr si la pipeline attend un schéma précis)
         X = pd.DataFrame(payload.records)
 
     proba = model.predict_proba(X)[:, 1]
     labels = (proba >= 0.5).astype(int).tolist()
+
+    # request + prediction
+    if _db_engine is not None:
+        log_request_and_prediction(
+            _db_engine,
+            endpoint=str(request.url.path),
+            payload=payload.model_dump(),
+            proba_leave=[float(p) for p in proba],
+            label=[int(l) for l in labels],
+        )
 
     return PredictResponse(
         proba_leave=[float(p) for p in proba],
@@ -179,6 +273,16 @@ def _build_gradio_app() -> gr.Blocks:
         # Prédiction
         proba = float(model.predict_proba(X)[0, 1])
         label = int(proba >= 0.5)
+
+        # Log en base (mêmes tables que l'API)
+        if _db_engine is not None:
+            log_request_and_prediction(
+                _db_engine,
+                endpoint="/gradio",
+                payload={"records": [record]},
+                proba_leave=[proba],
+                label=[label],
+            )
         return proba, label
 
     with gr.Blocks() as demo:

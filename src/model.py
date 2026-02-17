@@ -15,7 +15,6 @@ DATA_DIR = ROOT_DIR / "data"
 ARTIFACTS_DIR = ROOT_DIR / "artifacts"
 DEFAULT_MODEL_PATH = ARTIFACTS_DIR / "model.joblib"
 
-
 def build_training_data(data_dir: Path = DATA_DIR) -> Tuple[pd.DataFrame, pd.Series, list[str]]:
     eval_df = pd.read_csv(data_dir / "extrait_eval.csv")
     sirh_df = pd.read_csv(data_dir / "extrait_sirh.csv")
@@ -95,7 +94,7 @@ def train_model(data_dir: Path = DATA_DIR) -> Any:
         "model__class_weight": Categorical(["balanced", "balanced_subsample"]),
     }
 
-    summary, bayes, *_ = opti_pipeline(
+    bayes, *_ = opti_pipeline(
         model=BalancedRandomForestClassifier(random_state=42),
         X=X,
         y=y,
