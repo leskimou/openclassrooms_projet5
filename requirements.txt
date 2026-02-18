@@ -11,3 +11,5 @@ scikit-learn>=1.8.0
 scikit-optimize>=0.10.2
 seaborn>=0.13.2
 uvicorn>=0.40.0
+pytest>=8.3.0
+pytest-cov>=5.0.0
