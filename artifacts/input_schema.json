@@ -36,9 +36,9 @@
 
   "annees_depuis_la_derniere_promotion": { "type": "number"},
 
-  "diff_salaire_vs_niveau_pct ": { "type": "number"},
+  "niveau_hierarchique_poste": { "type": "number"},
 
-  "ratio_salaire_anciennete": { "type": "number"}
+  "annee_experience_totale": { "type": "number"}
  },
 
  "colums_order": ["note_evaluation_precedente",
@@ -59,6 +59,6 @@
                   "domaine_etude", 
                   "frequence_deplacement", 
                   "annees_depuis_la_derniere_promotion", 
-                  "diff_salaire_vs_niveau_pct ", 
-                  "ratio_salaire_anciennete"]
+                  "niveau_hierarchique_poste", 
+                  "annee_experience_totale"]
 }

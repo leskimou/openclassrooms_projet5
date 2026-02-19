@@ -1,327 +1,99 @@
-from unittest.mock import MagicMock
+from __future__ import annotations
 
-import numpy as np
-import pandas as pd
+import json
+from pathlib import Path
+
 import pytest
 
 from src import utils
 
 
-class FakeIsolationForest:
-    def __init__(self, **kwargs):
-        self.kwargs = kwargs
+def test_load_avg_salary_by_level_reads_and_normalizes_keys(tmp_path: Path):
+    payload = {" 1 ": 1000, 2: 2000.5}
+    path = tmp_path / "avg_salary.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
 
-    def fit_predict(self, X):
-        return np.ones(len(X), dtype=int)
+    result = utils.load_avg_salary_by_level(path)
 
-
-class FakePipeline:
-    def __init__(self, steps):
-        self.steps = steps
-        self.fitted_ = False
-
-    def fit(self, X, y):
-        self.fitted_ = True
-        return self
-
-    def predict_proba(self, X):
-        n = len(X)
-        probs = np.array([0.2 if i % 2 == 0 else 0.8 for i in range(n)], dtype=float)
-        return np.column_stack([1.0 - probs, probs])
-
-
-class FakeBayesSearchCV:
-    def __init__(self, estimator, **kwargs):
-        self.estimator = estimator
-        self.kwargs = kwargs
-
-    def fit(self, X, y):
-        self.best_estimator_ = self.estimator
-        self.best_params_ = {"dummy_param": 1}
-        self.best_score_ = 0.42
-        return self
-
-
-class FakeBayesSearchCVNoProba:
-    def __init__(self, estimator, **kwargs):
-        self.estimator = estimator
-        self.kwargs = kwargs
-
-    def fit(self, X, y):
-        class NoProbaEstimator:
-            def fit(self, X, y):
-                return self
-
-        self.best_estimator_ = NoProbaEstimator()
-        self.best_params_ = {"dummy_param": 1}
-        self.best_score_ = 0.42
-        return self
-
-
-def _dataset_binary():
-    X = pd.DataFrame(
-        {
-            "genre": ["H", "F", "H", "F", "H", "F", "H", "F"],
-            "heure_supplementaires": ["Non", "Oui", "Non", "Oui", "Non", "Oui", "Non", "Oui"],
-            "frequence_deplacement": ["Aucun", "Frequent", "Aucun", "Frequent", "Aucun", "Frequent", "Aucun", "Frequent"],
-            "domaine_etude": ["Math", "Info", "Math", "Info", "Math", "Info", "Math", "Info"],
-            "poste": ["A", "B", "A", "B", "A", "B", "A", "B"],
-            "departement": ["IT", "RH", "IT", "RH", "IT", "RH", "IT", "RH"],
-            "statut_marital": ["Single", "Married", "Single", "Married", "Single", "Married", "Single", "Married"],
-            "revenu_mensuel": [3000, 5000, 3200, 5100, 3100, 5050, 3300, 5200],
-            "diff_salaire_vs_niveau_pct": [-0.2, 0.2, -0.1, 0.1, -0.15, 0.15, -0.05, 0.05],
-            "ratio_salaire_anciennete": [600, 500, 610, 490, 605, 495, 615, 485],
-            "augementation_salaire_precedente": [10, 5, 12, 4, 11, 6, 9, 5],
-        }
-    )
-    y = pd.Series([0, 1, 0, 1, 0, 1, 0, 1], name="target")
-    return X, y
-
-def _config():
-    encoder_config = {
-        "onehot": ["genre"],
-        "ordinal": ["heure_supplementaires", "frequence_deplacement"],
-        "target": ["domaine_etude", "poste", "departement", "statut_marital"],
-    }
-    ordinal_categories_map = {
-        "heure_supplementaires": ["Non", "Oui"],
-        "frequence_deplacement": ["Aucun", "Occasionnel", "Frequent"],
-    }
-    numerical_features = [
-        "revenu_mensuel",
-        "diff_salaire_vs_niveau_pct",
-        "ratio_salaire_anciennete",
-        "augementation_salaire_precedente",
-    ]
-    return encoder_config, ordinal_categories_map, numerical_features
-
-
-def _patch_common(monkeypatch):
-    monkeypatch.setattr(utils, "Pipeline", FakePipeline)
-    monkeypatch.setattr(utils, "clone", lambda obj: obj)
-    monkeypatch.setattr(utils, "IsolationForest", FakeIsolationForest)
-    monkeypatch.setattr(utils.ConfusionMatrixDisplay, "from_predictions", MagicMock())
-
-    monkeypatch.setattr(utils.plt, "figure", MagicMock())
-    monkeypatch.setattr(utils.plt, "plot", MagicMock())
-    monkeypatch.setattr(utils.plt, "scatter", MagicMock())
-    monkeypatch.setattr(utils.plt, "xlabel", MagicMock())
-    monkeypatch.setattr(utils.plt, "ylabel", MagicMock())
-    monkeypatch.setattr(utils.plt, "title", MagicMock())
-    monkeypatch.setattr(utils.plt, "grid", MagicMock())
-    monkeypatch.setattr(utils.plt, "legend", MagicMock())
-    monkeypatch.setattr(utils.plt, "tight_layout", MagicMock())
-    monkeypatch.setattr(utils.plt, "show", MagicMock())
-    monkeypatch.setattr(utils.sns, "heatmap", MagicMock())
-
-
-def test_score_pondere_scalar():
-    score = utils.score_pondere(recall=0.8, f1=0.6, accuracy=0.5)
-    assert score == pytest.approx(0.64)
-
-
-def test_score_pondere_from_pred_binary():
-    y_true = [1, 1, 0, 0]
-    y_pred = [1, 0, 0, 0]
-    score = utils._score_pondere_from_pred(y_true, y_pred)
-    assert score == pytest.approx(0.6333333333, rel=1e-6)
+    assert result == {"1": 1000.0, "2": 2000.5}
 
 
 @pytest.mark.parametrize(
-    "metric,expected_threshold",
+    "value,expected",
     [
-        ("recall", 0.0),
-        ("precision", 0.5),
-        ("score_pondere", 0.0),
-        ("f1", 0.0),
+        (1, "1"),
+        (1.0, "1"),
+        (1.5, "1.5"),
+        (" 2 ", "2"),
     ],
 )
-def test_best_threshold_from_proba(metric, expected_threshold):
-    y_true = np.array([0, 1, 1])
-    y_proba = np.array([0.2, 0.6, 0.4])
-
-    threshold, df = utils._best_threshold_from_proba(
-        y_true=y_true,
-        y_proba_pos=y_proba,
-        metric=metric,
-        grid_size=3,
-    )
-
-    assert threshold == pytest.approx(expected_threshold)
-    assert list(df.columns) == ["threshold", "precision", "recall", "f1", "accuracy"]
-    assert len(df) == 3
+def test_normalize_level_key_valid_values(value, expected):
+    assert utils.normalize_level_key(value) == expected
 
 
-def test_matrice_correlation_runs_plot_pipeline(monkeypatch):
-    _patch_common(monkeypatch)
-    df = pd.DataFrame(
-        {
-            "x": [1.0, 2.0, 3.0, 4.0],
-            "y": [2.0, 4.0, 6.0, 8.0],
-            "z": [4.0, 1.0, 3.0, 2.0],
-        }
-    )
-
-    result = utils.matrice_correlation(df, method="spearman", seuil=0.5)
-
-    assert result is None
-    utils.plt.figure.assert_called_once()
-    utils.sns.heatmap.assert_called_once()
-    utils.plt.title.assert_called_once()
-    utils.plt.show.assert_called_once()
+def test_normalize_level_key_rejects_bool():
+    with pytest.raises(ValueError, match="nombre valide"):
+        utils.normalize_level_key(True)
 
 
-@pytest.mark.parametrize("oversampler_value", [None, "passthrough", "randomoversampler", "smote"])
-def test_evaluate_pipeline_cv_main_paths(monkeypatch, oversampler_value):
-    X, y = _dataset_binary()
-    encoder_config, ordinal_categories_map, numerical_features = _config()
+def test_preprocess_record_for_model_computes_expected_features():
+    record = {
+        "niveau_hierarchique_poste": 2,
+        "revenu_mensuel": 3000,
+        "annee_experience_totale": 4,
+        "genre": "F",
+    }
+    avg_map = {"2": 2500.0}
 
-    _patch_common(monkeypatch)
+    processed = utils.preprocess_record_for_model(record, avg_salary_by_level=avg_map)
 
-    summary = utils.evaluate_pipeline_cv(
-        model=object(),
-        X=X,
-        y=y,
-        encoder_config=encoder_config,
-        ordinal_categories_map=ordinal_categories_map,
-        numerical_features=numerical_features,
-        scaler="passthrough",
-        oversampler=oversampler_value,
-        n_splits=2,
-        k_best="all",
-        holdout_size=0.25,
-        seuil_decision=0.5,
-        optimiser_seuil_cv=True,
-        afficher_courbe_pr=False,
-        score_seuil_cv="score_pondere",
-        afficher_confusion_matrix=False,
-    )
-
-    assert isinstance(summary, pd.DataFrame)
-    assert "metric" in summary.columns
-    assert "holdout" in summary.columns
-    assert "ROC_AUC" in summary["metric"].values
-    assert summary.attrs["seuil_source"] == "cv_oof"
-    assert "seuil_grid" in summary.attrs
+    assert processed["diff_salaire_vs_niveau_pct"] == pytest.approx((3000.0 - 2500.0) / 2500.0)
+    assert processed["ratio_salaire_anciennete"] == pytest.approx(3000.0 / 5.0)
+    assert "niveau_hierarchique_poste" not in processed
+    assert "annee_experience_totale" not in processed
+    assert processed["genre"] == "F"
 
 
-def test_evaluate_pipeline_cv_raises_on_non_binary_target(monkeypatch):
-    X, _ = _dataset_binary()
-    y_non_binary = pd.Series([0, 1, 2, 0, 1, 2, 0, 2], name="target")
-    encoder_config, ordinal_categories_map, numerical_features = _config()
+def test_preprocess_record_for_model_raises_for_unknown_level():
+    record = {
+        "niveau_hierarchique_poste": 3,
+        "revenu_mensuel": 3000,
+        "annee_experience_totale": 4,
+    }
 
-    _patch_common(monkeypatch)
-
-    with pytest.raises(ValueError, match="classification binaire"):
-        utils.evaluate_pipeline_cv(
-            model=object(),
-            X=X,
-            y=y_non_binary,
-            encoder_config=encoder_config,
-            ordinal_categories_map=ordinal_categories_map,
-            numerical_features=numerical_features,
-            n_splits=2,
-            holdout_size=0.5,
-            optimiser_seuil_cv=False,
-            afficher_courbe_pr=False,
-            afficher_confusion_matrix=False,
-        )
+    with pytest.raises(ValueError, match="inconnu"):
+        utils.preprocess_record_for_model(record, avg_salary_by_level={"1": 2000.0, "2": 3000.0})
 
 
-def test_opti_pipeline_with_cv_threshold(monkeypatch):
-    X, y = _dataset_binary()
-    encoder_config, ordinal_categories_map, numerical_features = _config()
+@pytest.mark.parametrize("invalid_level", [0, 0.5, 5.1, 6])
+def test_preprocess_record_for_model_raises_for_out_of_range_level(invalid_level):
+    record = {
+        "niveau_hierarchique_poste": invalid_level,
+        "revenu_mensuel": 3000,
+        "annee_experience_totale": 4,
+    }
 
-    _patch_common(monkeypatch)
-    monkeypatch.setattr(utils, "BayesSearchCV", FakeBayesSearchCV)
-
-    summary, bayes, X_holdout, y_holdout, X_train_full, y_train_full = utils.opti_pipeline(
-        model=object(),
-        X=X,
-        y=y,
-        search_space={"model__max_depth": (2, 4)},
-        encoder_config=encoder_config,
-        ordinal_categories_map=ordinal_categories_map,
-        numerical_features=numerical_features,
-        n_splits=2,
-        k_best="all",
-        holdout_size=0.25,
-        seuil_decision=0.5,
-        scoring_label="score_pondere",
-        optimiser_seuil_cv=True,
-        afficher_courbe_pr=False,
-        score_seuil_cv="score_pondere",
-        afficher_confusion_matrix=False,
-    )
-
-    assert isinstance(summary, pd.DataFrame)
-    assert "metric" in summary.columns
-    assert "holdout" in summary.columns
-    assert summary.attrs["best_params"] == {"dummy_param": 1}
-    assert summary.attrs["best_score"] == pytest.approx(0.42)
-    assert summary.attrs["scoring"] == "score_pondere"
-    assert summary.attrs["seuil_source"] == "cv_oof"
-    assert len(X_holdout) > 0
-    assert len(y_holdout) > 0
-    assert len(X_train_full) > 0
-    assert len(y_train_full) > 0
-    assert bayes.best_score_ == pytest.approx(0.42)
+    with pytest.raises(ValueError, match="compris entre 1 et 5"):
+        utils.preprocess_record_for_model(record, avg_salary_by_level={"1": 2000.0, "2": 3000.0, "3": 4000.0, "4": 5000.0, "5": 6000.0})
 
 
-def test_opti_pipeline_fixed_threshold_path(monkeypatch):
-    X, y = _dataset_binary()
-    encoder_config, ordinal_categories_map, numerical_features = _config()
+def test_preprocess_record_for_model_raises_for_invalid_experience():
+    record = {
+        "niveau_hierarchique_poste": 1,
+        "revenu_mensuel": 3000,
+        "annee_experience_totale": -1,
+    }
 
-    _patch_common(monkeypatch)
-    monkeypatch.setattr(utils, "BayesSearchCV", FakeBayesSearchCV)
-
-    summary, *_ = utils.opti_pipeline(
-        model=object(),
-        X=X,
-        y=y,
-        search_space={"model__max_depth": (2, 4)},
-        encoder_config=encoder_config,
-        ordinal_categories_map=ordinal_categories_map,
-        numerical_features=numerical_features,
-        n_splits=2,
-        k_best="all",
-        holdout_size=0.25,
-        seuil_decision=0.6,
-        scoring_label="score_pondere",
-        optimiser_seuil_cv=False,
-        afficher_courbe_pr=False,
-        score_seuil_cv="score_pondere",
-        afficher_confusion_matrix=False,
-    )
-
-    assert summary.attrs["seuil_source"] == "fixed"
-    assert summary.attrs["seuil_grid"] is None
-    assert summary.attrs["seuil_decision"] == pytest.approx(0.6)
+    with pytest.raises(ValueError, match="> -1"):
+        utils.preprocess_record_for_model(record, avg_salary_by_level={"1": 2000.0})
 
 
-def test_opti_pipeline_raises_if_no_predict_proba(monkeypatch):
-    X, y = _dataset_binary()
-    encoder_config, ordinal_categories_map, numerical_features = _config()
+def test_preprocess_record_for_model_raises_when_avg_salary_is_zero():
+    record = {
+        "niveau_hierarchique_poste": 1,
+        "revenu_mensuel": 3000,
+        "annee_experience_totale": 4,
+    }
 
-    _patch_common(monkeypatch)
-    monkeypatch.setattr(utils, "BayesSearchCV", FakeBayesSearchCVNoProba)
-
-    with pytest.raises(ValueError, match="predict_proba"):
-        utils.opti_pipeline(
-            model=object(),
-            X=X,
-            y=y,
-            search_space={"model__max_depth": (2, 4)},
-            encoder_config=encoder_config,
-            ordinal_categories_map=ordinal_categories_map,
-            numerical_features=numerical_features,
-            n_splits=2,
-            k_best="all",
-            holdout_size=0.25,
-            seuil_decision=0.5,
-            scoring_label="score_pondere",
-            optimiser_seuil_cv=True,
-            afficher_courbe_pr=False,
-            score_seuil_cv="score_pondere",
-            afficher_confusion_matrix=False,
-        )
+    with pytest.raises(ValueError, match="division par zéro"):
+        utils.preprocess_record_for_model(record, avg_salary_by_level={"1": 0.0})
