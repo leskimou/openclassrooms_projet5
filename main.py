@@ -14,8 +14,9 @@ Exécution (exemples) :
 from __future__ import annotations
 
 import json
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Dict, List, Union, Any
+from typing import Dict, List, Union, Any, AsyncIterator
 
 import joblib
 import pandas as pd
@@ -194,16 +195,18 @@ def _to_model_dataframe(record: dict[str, Any]) -> pd.DataFrame:
 # ---------------------------------------------------------------------
 # 4) App FastAPI
 # ---------------------------------------------------------------------
-app = FastAPI()
-
-_db_engine = None
-
-
-@app.on_event("startup")
-def _startup_db() -> None:
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    _ = _app
     global _db_engine
     _db_engine = get_engine_from_env()
     init_api_logging_tables(_db_engine)
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
+
+_db_engine = None
 
 @app.get("/health")
 def health():
