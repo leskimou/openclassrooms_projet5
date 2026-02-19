@@ -35,10 +35,21 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install Git LFS
+        run: |
+          git lfs install
+
+      - name: Install Git Xet
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/huggingface/xet-core/refs/heads/main/git_xet/install.sh | sh
+          git xet install
+          git xet --version
+
       - name: Push to Hugging Face
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
+          git remote remove hf || true
           git remote add hf https://leskimou:${HF_TOKEN}@huggingface.co/spaces/leskimou/openclassrooms_projet5
           git push --force hf main
 
