@@ -1,0 +1,64 @@
+{ 
+"features": {
+  "note_evaluation_precedente": { "type": "number"},
+
+  "heure_supplementaires": { "type": "category", "choices": ["Non", "Oui"]},
+
+  "augementation_salaire_precedente": { "type": "number"},
+
+  "age": { "type": "number"},
+
+  "genre": { "type": "category", "choices": ["F", "M"]},
+
+  "revenu_mensuel": { "type": "number"},
+
+  "statut_marital": { "type": "category", "choices": ["Célibataire", "Divorcé(e)", "Marié(e)"]},
+
+  "departement": { "type": "category", "choices": ["Commercial", "Consulting", "Ressources Humaines"]},
+
+  "poste" : { "type": "category", "choices": ["Assistant de Direction", "Cadre Commercial", "Consultant", "Directeur Technique", "Manager", "Représentant Commercial", "Ressources Humaines", "Senior Manager", "Tech Lead"]},
+
+  "nombre_experiences_precedentes": { "type": "number"},
+
+  "annees_dans_le_poste_actuel": { "type": "number"},
+
+  "nombre_participation_pee" : { "type": "number"},
+
+  "nb_formations_suivies": { "type": "number"},
+
+  "distance_domicile_travail": { "type": "number"},
+
+  "niveau_education" : { "type" : "number"},
+
+  "domaine_etude" : { "type" : "category", "choices" : ["Autre", "Entrepreunariat", "Ressources Humaines", "Marketing", "Transformation Digitale", "Infra & Cloud"]},
+
+  "frequence_deplacement": { "type": "category", "choices": ["Aucun", "Occasionnel", "Frequent"]},
+
+  "annees_depuis_la_derniere_promotion": { "type": "number"},
+
+  "niveau_hierarchique_poste": { "type": "number"},
+
+  "annee_experience_totale": { "type": "number"}
+ },
+
+ "colums_order": ["note_evaluation_precedente",
+                  "heure_supplementaires", 
+                  "augementation_salaire_precedente", 
+                  "age", 
+                  "genre", 
+                  "revenu_mensuel", 
+                  "statut_marital", 
+                  "departement", 
+                  "poste", 
+                  "nombre_experiences_precedentes", 
+                  "annees_dans_le_poste_actuel", 
+                  "nombre_participation_pee", 
+                  "nb_formations_suivies", 
+                  "distance_domicile_travail", 
+                  "niveau_education", 
+                  "domaine_etude", 
+                  "frequence_deplacement", 
+                  "annees_depuis_la_derniere_promotion", 
+                  "niveau_hierarchique_poste", 
+                  "annee_experience_totale"]
+}
