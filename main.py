@@ -14,16 +14,18 @@ Exécution (exemples) :
 from __future__ import annotations
 
 import json
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Dict, List, Union, Any
+from typing import Dict, List, Union, Any, AsyncIterator
 
-import joblib
 import pandas as pd
 import gradio as gr
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.create_db import get_engine_from_env, init_api_logging_tables, log_request_and_prediction
+from src.model import ARTIFACT_MODEL, predict_with_artifact_model
+from src.utils import preprocess_record_for_model
 
 
 # ---------------------------------------------------------------------
@@ -31,11 +33,10 @@ from src.create_db import get_engine_from_env, init_api_logging_tables, log_requ
 # ---------------------------------------------------------------------
 
 ARTIFACTS_DIR = Path("artifacts")
-MODEL_PATH = ARTIFACTS_DIR / "model.joblib"
 SCHEMA_PATH = ARTIFACTS_DIR / "input_schema.json"
 
 # Charge le modèle une seule fois au démarrage de l’app
-model = joblib.load(MODEL_PATH)
+model = ARTIFACT_MODEL
 
 
 def _normalize_input_schema(raw_schema: dict[str, Any]) -> dict[str, Any]:
@@ -194,16 +195,18 @@ def _to_model_dataframe(record: dict[str, Any]) -> pd.DataFrame:
 # ---------------------------------------------------------------------
 # 4) App FastAPI
 # ---------------------------------------------------------------------
-app = FastAPI()
-
-_db_engine = None
-
-
-@app.on_event("startup")
-def _startup_db() -> None:
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    _ = _app
     global _db_engine
     _db_engine = get_engine_from_env()
     init_api_logging_tables(_db_engine)
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
+
+_db_engine = None
 
 @app.get("/health")
 def health():
@@ -213,17 +216,21 @@ def health():
 
 @app.post("/predict", response_model=PredictResponse)
 def predict(payload: PredictRequest, request: Request):
+    try:
+        processed_records = [preprocess_record_for_model(rec) for rec in payload.records]
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     # Convertit la liste de records en DataFrame en respectant les colonnes attendues
     expected = _expected_model_columns()
     if expected:
         # On aligne chaque record sur les colonnes attendues
-        rows = [{col: rec.get(col, None) for col in expected} for rec in payload.records]
+        rows = [{col: rec.get(col, None) for col in expected} for rec in processed_records]
         X = pd.DataFrame(rows, columns=expected)
     else:
-        X = pd.DataFrame(payload.records)
+        X = pd.DataFrame(processed_records)
 
-    proba = model.predict_proba(X)[:, 1]
-    labels = (proba >= 0.5).astype(int).tolist()
+    proba, labels = predict_with_artifact_model(X=X, threshold=0.5)
 
     # request + prediction
     if _db_engine is not None:
@@ -231,13 +238,13 @@ def predict(payload: PredictRequest, request: Request):
             _db_engine,
             endpoint=str(request.url.path),
             payload=payload.model_dump(),
-            proba_leave=[float(p) for p in proba],
-            label=[int(l) for l in labels],
+            proba_leave=proba,
+            label=labels,
         )
 
     return PredictResponse(
-        proba_leave=[float(p) for p in proba],
-        label=[int(l) for l in labels],
+        proba_leave=proba,
+        label=labels,
     )
 
 
@@ -267,12 +274,18 @@ def _build_gradio_app() -> gr.Blocks:
         # Reconstruit un record à partir des champs Gradio
         record = {col: val for col, val in zip(cols_ui, values)}
 
+        try:
+            processed_record = preprocess_record_for_model(record)
+        except ValueError as exc:
+            raise gr.Error(str(exc)) from exc
+
         # Aligne ce record sur les colonnes attendues par le modèle
-        X = _to_model_dataframe(record)
+        X = _to_model_dataframe(processed_record)
 
         # Prédiction
-        proba = float(model.predict_proba(X)[0, 1])
-        label = int(proba >= 0.5)
+        proba_list, label_list = predict_with_artifact_model(X=X, threshold=0.5)
+        proba = float(proba_list[0])
+        label = int(label_list[0])
 
         # Log en base (mêmes tables que l'API)
         if _db_engine is not None:
@@ -301,7 +314,7 @@ def _build_gradio_app() -> gr.Blocks:
                 inputs.append(gr.Dropdown(choices=f.get("choices", []), value=defaults[col], label=col))
 
         btn = gr.Button("Prédire")
-        out_proba = gr.Number(label="Probabilité de départ (classe 1)")
+        out_proba = gr.Number(label="Probabilité de départ (classe 1)", precision=8)
         out_label = gr.Number(label="Label (seuil 0.5)")
 
         btn.click(fn=predict_from_form, inputs=inputs, outputs=[out_proba, out_label])
