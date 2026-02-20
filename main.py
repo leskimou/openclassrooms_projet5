@@ -224,7 +224,7 @@ _db_engine = None
 
 @app.get("/")
 def root() -> RedirectResponse:
-    return RedirectResponse(url="/gradio")
+    return RedirectResponse(url="/gradio/")
 
 @app.get("/health")
 def health():
