@@ -14,6 +14,7 @@ Exécution (exemples) :
 from __future__ import annotations
 
 import json
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Dict, List, Union, Any, AsyncIterator
@@ -26,6 +27,10 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from src.create_db import get_engine_from_env, init_api_logging_tables, log_request_and_prediction
 from src.model import ARTIFACT_MODEL, predict_with_artifact_model
 from src.utils import preprocess_record_for_model
+
+
+APP_MODE = os.getenv("APP_MODE", "local").strip().lower()
+IS_DEMO_MODE = APP_MODE == "demo"
 
 
 # ---------------------------------------------------------------------
@@ -199,8 +204,16 @@ def _to_model_dataframe(record: dict[str, Any]) -> pd.DataFrame:
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     _ = _app
     global _db_engine
-    _db_engine = get_engine_from_env()
-    init_api_logging_tables(_db_engine)
+    if IS_DEMO_MODE:
+        _db_engine = None
+        yield
+        return
+
+    try:
+        _db_engine = get_engine_from_env()
+        init_api_logging_tables(_db_engine)
+    except Exception:
+        _db_engine = None
     yield
 
 
