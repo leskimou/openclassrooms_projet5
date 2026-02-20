@@ -22,6 +22,7 @@ from typing import Dict, List, Union, Any, AsyncIterator
 import pandas as pd
 import gradio as gr
 from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.create_db import get_engine_from_env, init_api_logging_tables, log_request_and_prediction
@@ -220,6 +221,10 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(lifespan=lifespan)
 
 _db_engine = None
+
+@app.get("/")
+def root() -> RedirectResponse:
+    return RedirectResponse(url="/gradio")
 
 @app.get("/health")
 def health():
