@@ -26,6 +26,11 @@ def _build_valid_record() -> dict[str, Any]:
 def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
 	monkeypatch.setattr(main, "get_engine_from_env", lambda: None)
 	monkeypatch.setattr(main, "init_api_logging_tables", lambda _engine: None)
+	monkeypatch.setattr(
+		main,
+		"predict_with_artifact_model",
+		lambda X, threshold=0.5: ([0.8 for _ in range(len(X))], [1 for _ in range(len(X))]),
+	)
 
 	with TestClient(main.app) as test_client:
 		yield test_client
