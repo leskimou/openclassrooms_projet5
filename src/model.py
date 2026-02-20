@@ -21,16 +21,34 @@ HF_MODEL_FILENAME = os.getenv("HF_MODEL_FILENAME", "model.joblib")
 HF_MODEL_REVISION = os.getenv("HF_MODEL_REVISION")
 
 
+def _candidate_filenames() -> list[str]:
+    candidates = [HF_MODEL_FILENAME, "model.joblib", "artifacts/model.joblib"]
+    unique_candidates: list[str] = []
+    for name in candidates:
+        if name not in unique_candidates:
+            unique_candidates.append(name)
+    return unique_candidates
+
+
 def _load_model_from_hf() -> Any:
     if hf_hub_download is None:
         raise RuntimeError("huggingface_hub is not installed")
 
-    model_path = hf_hub_download(
-        repo_id=HF_MODEL_REPO_ID,
-        filename=HF_MODEL_FILENAME,
-        revision=HF_MODEL_REVISION,
-    )
-    return joblib.load(model_path)
+    last_error: Exception | None = None
+    for filename in _candidate_filenames():
+        try:
+            model_path = hf_hub_download(
+                repo_id=HF_MODEL_REPO_ID,
+                filename=filename,
+                revision=HF_MODEL_REVISION,
+            )
+            return joblib.load(model_path)
+        except Exception as exc:
+            last_error = exc
+
+    raise RuntimeError(
+        f"Unable to download model from repo '{HF_MODEL_REPO_ID}'. Tried files: {_candidate_filenames()}"
+    ) from last_error
 
 
 ARTIFACT_MODEL: Any | None = None
