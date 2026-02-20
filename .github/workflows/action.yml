@@ -39,15 +39,18 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
+          rm -rf /tmp/hf-deploy
+          mkdir -p /tmp/hf-deploy
+          rsync -a --exclude .git ./ /tmp/hf-deploy/
+
+          cd /tmp/hf-deploy
+          git init
+          git checkout -b main
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          git checkout --orphan hf-deploy
-          git reset --hard
           git add -A
-          git commit -m "Deploy snapshot ${GITHUB_SHA}" || true
+          git commit -m "Deploy snapshot ${GITHUB_SHA}"
 
-          git remote remove hf || true
           git remote add hf https://leskimou:${HF_TOKEN}@huggingface.co/spaces/leskimou/openclassrooms_projet5
-          git push --force hf hf-deploy:main
+          git push --force hf main
 
