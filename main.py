@@ -289,27 +289,28 @@ def _build_gradio_app() -> gr.Blocks:
 
         try:
             processed_record = preprocess_record_for_model(record)
+            # Aligne ce record sur les colonnes attendues par le modèle
+            X = _to_model_dataframe(processed_record)
+
+            # Prédiction
+            proba_list, label_list = predict_with_artifact_model(X=X, threshold=0.5)
+            proba = float(proba_list[0])
+            label = int(label_list[0])
+
+            # Log en base (mêmes tables que l'API)
+            if _db_engine is not None:
+                log_request_and_prediction(
+                    _db_engine,
+                    endpoint="/gradio",
+                    payload={"records": [record]},
+                    proba_leave=[proba],
+                    label=[label],
+                )
+            return proba, label
         except ValueError as exc:
             raise gr.Error(str(exc)) from exc
-
-        # Aligne ce record sur les colonnes attendues par le modèle
-        X = _to_model_dataframe(processed_record)
-
-        # Prédiction
-        proba_list, label_list = predict_with_artifact_model(X=X, threshold=0.5)
-        proba = float(proba_list[0])
-        label = int(label_list[0])
-
-        # Log en base (mêmes tables que l'API)
-        if _db_engine is not None:
-            log_request_and_prediction(
-                _db_engine,
-                endpoint="/gradio",
-                payload={"records": [record]},
-                proba_leave=[proba],
-                label=[label],
-            )
-        return proba, label
+        except Exception as exc:
+            raise gr.Error(f"Erreur lors de la prédiction: {exc}") from exc
 
     with gr.Blocks() as demo:
         gr.Markdown("## Prédiction de départ d'un employé (UI Gradio)")
