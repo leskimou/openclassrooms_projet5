@@ -1,6 +1,7 @@
 from pathlib import Path
 from unittest.mock import MagicMock
 import pandas as pd
+import pytest
 from src import create_db
 
 
@@ -92,6 +93,87 @@ def test_log_request_and_prediction(monkeypatch):
     assert req_id == "req"
     assert pred_id == "pred"
     assert conn.execute.call_count == 2
+
+
+def test_api_requests_table_uses_feature_columns_not_payload():
+    col_names = {col.name for col in create_db.api_requests.columns}
+
+    assert "payload" not in col_names
+    assert "note_evaluation_precedente" in col_names
+
+
+def test_log_request_and_prediction_maps_feature_values(monkeypatch):
+    conn = MagicMock()
+    engine = MagicMock()
+    engine.begin.return_value.__enter__.return_value = conn
+    monkeypatch.setattr(create_db.uuid, "uuid4", MagicMock(side_effect=["req", "pred"]))
+
+    payload = {
+        "records": [
+            {
+                "note_evaluation_precedente": 2,
+                "genre": "F",
+            }
+        ]
+    }
+
+    create_db.log_request_and_prediction(
+        engine,
+        endpoint="/predict",
+        payload=payload,
+        proba_leave=[0.7],
+        label=[1],
+    )
+
+    request_call = conn.execute.call_args_list[0]
+    request_params = request_call.args[0].compile().params
+
+    assert request_params["note_evaluation_precedente"] == 2.0
+    assert request_params["genre"] == "F"
+
+
+def test_api_predictions_table_uses_typed_columns():
+    col_names = {col.name for col in create_db.api_predictions.columns}
+
+    assert "prediction_index" in col_names
+    assert "proba_leave" in col_names
+    assert "label" in col_names
+
+
+def test_log_request_and_prediction_maps_prediction_values(monkeypatch):
+    conn = MagicMock()
+    engine = MagicMock()
+    engine.begin.return_value.__enter__.return_value = conn
+    monkeypatch.setattr(create_db.uuid, "uuid4", MagicMock(side_effect=["req", "pred"]))
+
+    create_db.log_request_and_prediction(
+        engine,
+        endpoint="/predict",
+        payload={"records": [{"note_evaluation_precedente": 2}]},
+        proba_leave=[0.7],
+        label=[1],
+    )
+
+    prediction_call = conn.execute.call_args_list[1]
+    prediction_params = prediction_call.args[0].compile().params
+
+    assert prediction_params["prediction_index"] == 0
+    assert prediction_params["proba_leave"] == 0.7
+    assert prediction_params["label"] == 1
+
+
+def test_log_request_and_prediction_raises_when_lengths_mismatch(monkeypatch):
+    engine = MagicMock()
+    monkeypatch.setattr(create_db.uuid, "uuid4", MagicMock(return_value="req"))
+
+    with pytest.raises(ValueError, match="même longueur"):
+        create_db.log_request_and_prediction(
+            engine,
+            endpoint="/predict",
+            payload={"records": [{"note_evaluation_precedente": 2}]},
+            proba_leave=[0.7, 0.2],
+            label=[1],
+        )
 
 
 def test_full_dataset_to_bdd(monkeypatch):

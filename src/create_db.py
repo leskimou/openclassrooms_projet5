@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import os
 import uuid
 import pandas as pd
@@ -6,7 +7,9 @@ from dotenv import load_dotenv
 from sqlalchemy import (
     Column,
     DateTime,
+    Float,
     ForeignKey,
+    Integer,
     MetaData,
     String,
     Table,
@@ -18,6 +21,40 @@ from sqlalchemy.dialects.postgresql import JSONB
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT_DIR / "data"
+ARTIFACTS_DIR = ROOT_DIR / "artifacts"
+SCHEMA_PATH = ARTIFACTS_DIR / "input_schema.json"
+
+
+def _load_feature_specs(schema_path: Path = SCHEMA_PATH) -> dict[str, dict]:
+    raw_schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    features_raw = raw_schema.get("features", {})
+
+    if not isinstance(features_raw, dict):
+        return {}
+
+    normalized_features: dict[str, dict] = {}
+    for feature_name, spec in features_raw.items():
+        clean_name = str(feature_name).strip()
+        normalized_features[clean_name] = spec if isinstance(spec, dict) else {}
+
+    return normalized_features
+
+
+FEATURE_SPECS = _load_feature_specs()
+
+
+def _build_request_feature_columns() -> list[Column]:
+    columns: list[Column] = []
+    for feature_name, spec in FEATURE_SPECS.items():
+        feature_type = str(spec.get("type", "")).strip().lower()
+        if feature_type == "number":
+            columns.append(Column(feature_name, Float, nullable=True))
+        else:
+            columns.append(Column(feature_name, String, nullable=True))
+    return columns
+
+
+REQUEST_FEATURE_COLUMNS = _build_request_feature_columns()
 
 
 def _resolve_env_file_path() -> Path | None:
@@ -116,7 +153,7 @@ api_requests = Table(
     Column("id", String, primary_key=True),
     Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
     Column("endpoint", String, nullable=False),
-    Column("payload", JSONB, nullable=False),
+    *REQUEST_FEATURE_COLUMNS,
 )
 
 api_predictions = Table(
@@ -125,8 +162,9 @@ api_predictions = Table(
     Column("id", String, primary_key=True),
     Column("request_id", String, ForeignKey("api_requests.id"), nullable=False),
     Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
-    Column("proba_leave", JSONB, nullable=False),
-    Column("label", JSONB, nullable=False),
+    Column("prediction_index", Integer, nullable=False),
+    Column("proba_leave", Float, nullable=False),
+    Column("label", Integer, nullable=False),
 )
 
 
@@ -144,26 +182,52 @@ def log_request_and_prediction(
     label: list[int],) -> tuple[str, str]:
 
     request_id = str(uuid.uuid4())
-    prediction_id = str(uuid.uuid4())
+    if len(proba_leave) != len(label):
+        raise ValueError("proba_leave et label doivent avoir la même longueur")
+
+    prediction_ids: list[str] = []
+
+    request_insert_values = {
+        "id": request_id,
+        "endpoint": endpoint,
+    }
+
+    records = payload.get("records", []) if isinstance(payload, dict) else []
+    first_record = records[0] if records and isinstance(records[0], dict) else {}
+
+    for feature_name, spec in FEATURE_SPECS.items():
+        raw_value = first_record.get(feature_name)
+        if raw_value is None:
+            request_insert_values[feature_name] = None
+            continue
+
+        feature_type = str(spec.get("type", "")).strip().lower()
+        if feature_type == "number":
+            request_insert_values[feature_name] = float(raw_value)
+        else:
+            request_insert_values[feature_name] = str(raw_value)
 
     with engine.begin() as conn:
         conn.execute(
             api_requests.insert().values(
-                id=request_id,
-                endpoint=endpoint,
-                payload=payload,
+                **request_insert_values,
             )
         )
-        conn.execute(
-            api_predictions.insert().values(
-                id=prediction_id,
-                request_id=request_id,
-                proba_leave=proba_leave,
-                label=label,
+        for idx, (proba_value, label_value) in enumerate(zip(proba_leave, label)):
+            prediction_id = str(uuid.uuid4())
+            prediction_ids.append(prediction_id)
+            conn.execute(
+                api_predictions.insert().values(
+                    id=prediction_id,
+                    request_id=request_id,
+                    prediction_index=idx,
+                    proba_leave=float(proba_value),
+                    label=int(label_value),
+                )
             )
-        )
 
-    return request_id, prediction_id
+    first_prediction_id = prediction_ids[0] if prediction_ids else ""
+    return request_id, first_prediction_id
 
 
 def full_dataset_to_bdd(data_dir: Path = DATA_DIR, table_name: str = "dataset_final") -> pd.DataFrame:
