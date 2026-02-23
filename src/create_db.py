@@ -20,6 +20,24 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT_DIR / "data"
 
 
+def _resolve_env_file_path() -> Path | None:
+    root_env = ROOT_DIR / ".env"
+    if root_env.exists():
+        return root_env
+
+    confs_dir = ROOT_DIR / "confs"
+    if confs_dir.exists():
+        env_candidates = sorted(confs_dir.rglob(".env"))
+        if env_candidates:
+            return env_candidates[0]
+
+        env_pattern_candidates = sorted(confs_dir.rglob(".env.*"))
+        if env_pattern_candidates:
+            return env_pattern_candidates[0]
+
+    return None
+
+
 def build_dataset(data_dir: Path = DATA_DIR) -> pd.DataFrame:
     eval_df = pd.read_csv(data_dir / "extrait_eval.csv")
     sirh_df = pd.read_csv(data_dir / "extrait_sirh.csv")
@@ -71,18 +89,9 @@ def build_dataset(data_dir: Path = DATA_DIR) -> pd.DataFrame:
 
 
 def get_engine_from_env():
-    env_file = os.getenv("ENV_FILE")
-
-    if env_file:
-        dotenv_path = Path(env_file)
-        if not dotenv_path.is_absolute():
-            dotenv_path = ROOT_DIR / dotenv_path
-    else:
-        dotenv_path = ROOT_DIR / "confs" / "dev" / ".env.dev"
-        if not dotenv_path.exists():
-            dotenv_path = ROOT_DIR / ".env"
-
-    load_dotenv(dotenv_path=dotenv_path)
+    dotenv_path = _resolve_env_file_path()
+    if dotenv_path is not None:
+        load_dotenv(dotenv_path=dotenv_path, override=False)
 
     url = URL.create(
         drivername="postgresql+psycopg2",

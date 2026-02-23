@@ -21,6 +21,7 @@ from typing import Dict, List, Union, Any, AsyncIterator
 
 import pandas as pd
 import gradio as gr
+from dotenv import load_dotenv
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -30,8 +31,37 @@ from src.model import ARTIFACT_MODEL, predict_with_artifact_model
 from src.utils import preprocess_record_for_model
 
 
-APP_MODE = os.getenv("APP_MODE", "local").strip().lower()
-IS_DEMO_MODE = APP_MODE == "demo"
+ROOT_DIR = Path(__file__).resolve().parent
+
+
+def _resolve_env_file_path() -> Path | None:
+    root_env = ROOT_DIR / ".env"
+    if root_env.exists():
+        return root_env
+
+    confs_dir = ROOT_DIR / "confs"
+    if confs_dir.exists():
+        env_candidates = sorted(confs_dir.rglob(".env"))
+        if env_candidates:
+            return env_candidates[0]
+
+        env_pattern_candidates = sorted(confs_dir.rglob(".env.*"))
+        if env_pattern_candidates:
+            return env_pattern_candidates[0]
+
+    return None
+
+
+def _load_runtime_env() -> None:
+    dotenv_path = _resolve_env_file_path()
+    if dotenv_path is not None:
+        load_dotenv(dotenv_path=dotenv_path, override=False)
+
+
+_load_runtime_env()
+
+APP_MODE = os.getenv("APP_MODE", "huggingface").strip().lower()
+IS_LOCAL_MODE = APP_MODE == "local"
 
 
 # ---------------------------------------------------------------------
@@ -205,7 +235,7 @@ def _to_model_dataframe(record: dict[str, Any]) -> pd.DataFrame:
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     _ = _app
     global _db_engine
-    if IS_DEMO_MODE:
+    if not IS_LOCAL_MODE:
         _db_engine = None
         yield
         return
