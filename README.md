@@ -4,98 +4,7 @@ sdk: docker
 app_port: 7860
 ---
 
-# openclassrooms_projet5
 
-Ce projet consiste à déployer le modèle de classification pour déterminer si un employée reste dans l'entreprise ou non créer lors du porjet 4. Afin de l'utiliser de manière simple en entreprise.
-
-
-## Vue d'ensemble
-
-L'application expose :
-- une API FastAPI pour la prédiction,
-- une UI Gradio montée dans FastAPI,
-- un mode d'exécution piloté par APP_MODE pour activer ou non les interactions base de données.
-
-Endpoints principaux :
-- GET /health : statut applicatif,
-- POST /predict : prédiction sur un batch de records,
-- /gradio : interface utilisateur Gradio.
-
-
-## Modes d'exécution : Local vs Hugging Face
-
-Le comportement est piloté par la variable APP_MODE.
-
-- APP_MODE=local
-	- active la base de données,
-	- crée les tables api_requests et api_predictions au démarrage,
-	- logge les requêtes et prédictions.
-
-- APP_MODE=huggingface (ou demo)
-	- désactive toute interaction base de données,
-	- API et UI restent disponibles.
-
-Ordre de résolution des variables d'environnement au démarrage :
-1. variables déjà présentes dans l'environnement runtime (ex: Hugging Face Spaces Variables/Secrets),
-2. fichier .env à la racine du projet (si présent),
-3. sinon premier fichier trouvé dans confs/** : .env puis .env.* (ex: confs/dev/.env.dev).
-
-Note : les variables déjà injectées par la plateforme ont priorité.
-
-Important (local) : créez impérativement un fichier d'environnement avec APP_MODE=local, soit à la racine (.env), soit dans confs/.
-
-
-## Variables d'environnement
-
-Variables utilisées pour la base de données (mode local) :
-- DB_HOST
-- DB_PORT
-- DB_NAME
-- DB_USER
-- DB_PASSWORD
-
-Variables d'exécution :
-- APP_MODE (local, huggingface ou demo)
-
-
-## Lancement en local
-
-Pré-requis :
-- Python 3.12+
-- dépendances installées via uv
-- PostgreSQL accessible avec les credentials configurés
-
-Exemple PowerShell :
-
-1) créer un fichier d'environnement
-
-Option A (recommandé) : .env à la racine
-
-Option B : un fichier dans confs/ (ex: confs/dev/.env.dev)
-
-Exemple minimal :
-
-APP_MODE=local
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=postgres
-DB_USER=postgres
-DB_PASSWORD=change_me
-
-2) lancer l'application
-
-uv run python -m uvicorn main:app --reload --host 127.0.0.1 --port 7860
-
-3) tester la santé
-
-Invoke-RestMethod http://127.0.0.1:7860/health
-
-
-## Déploiement Hugging Face (Docker Space)
-
-- Le conteneur démarre avec uvicorn main:app sur le port 7860.
-- Définir APP_MODE=huggingface dans les Variables du Space.
-- Si APP_MODE n'est pas local, aucune opération DB n'est exécutée.
 
 
 ## Contrat API
@@ -130,8 +39,152 @@ Codes de réponse :
 - 422 : payload invalide (feature manquante, type invalide, modalité inconnue, etc.)
 
 
-## Tests et couverture
 
-Commande standard du projet :
+<!--  -->
+<a id="readme-top"></a>
+<!--
 
-make test
+<!-- PROJECT LOGO -->
+<br />
+<div align="center">
+
+<h3 align="center">API Modèle de décision</h3>
+
+  <p align="center">
+    Ce projet consiste à déployer le modèle de classification, créer lors du porjet 4, pour déterminer si um employé va quiter ou non l'entrerpise.
+  </p>
+</div>
+
+<!-- TABLE OF CONTENTS -->
+<details>
+  <summary>Sommaire</summary>
+  <ol>
+    <li>
+      <a href="#about-the-project">A propos du projet</a>
+    </li>
+    <li>
+      <a href="#getting-started">Getting Started</a>
+      <ul>
+        <li><a href="#prerequisites">Prerequisites</a></li>
+        <li><a href="#installation">Installation</a></li>
+      </ul>
+    </li>
+    <li><a href="#usage">Usage</a></li>
+    <li><a href="#roadmap">Roadmap</a></li>
+  </ol>
+</details>
+
+
+
+<!-- ABOUT THE PROJECT -->
+## A propos du projet
+
+Scénario : Après avoir créer un modèle à la demande du département des ressources humaines afin détablir les causes d'attrition du personnel au sein de l'entreprise, et de prédire le risque d'un potentiel départ chez un employé. L'objective et de déployer un modèle de machine learning en production.
+
+## Vue d'ensemble
+
+L'application expose :
+- une API FastAPI pour la prédiction,
+- une UI Gradio montée dans FastAPI,
+- un mode d'exécution piloté par APP_MODE pour activer ou non les interactions base de données.
+
+Endpoints principaux :
+- GET /health : statut applicatif,
+- POST /predict : prédiction sur un batch de records,
+- /gradio : interface utilisateur Gradio.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+
+<!-- GETTING STARTED -->
+## Getting Started
+
+Ce modèle peut s'utiliser de deux manières :
+
+* En déport local
+* Via HuggingFace
+
+Le comportement est piloté par la variable APP_MODE.
+
+- APP_MODE=local
+	- active la base de données,
+	- crée les tables api_requests et api_predictions au démarrage,
+	- log des requêtes et prédictions.
+
+- APP_MODE=huggingface (ou demo)
+	- désactive toute interaction avec une base de données,
+	- API et UI restent disponibles.
+
+### Dépot local
+
+En dépot local introduire un fichier .env (à la racine du projet ou dans confs) qui permettra de connecter l'API à une base de données PostgreSQL
+
+Pré-requis :
+- Python 3.12
+- uv
+- PostgreSQL accessible avec les credentials configurés
+
+En dépot local vous pouvez introduire un fichier .env qui permettra de connecter l'API à une base de données PostgreSQL
+
+1. Clone le repository
+   ```sh
+   git clone https://github.com/leskimou/openclassrooms_projet5.git
+   ```
+
+2. Installer les packages
+   ```sh
+   uv sync
+   ```
+
+3. Configurez votre fichier .env (en ajustant les variables selon les informations de votre BDD)
+   ```.env
+   DB_HOST=localhost
+   DB_NAME=postgres
+   DB_USER=postgres
+   DB_PASSWORD=votremotdepasse
+   DB_PORT=5432
+   APP_MODE =local
+   ```
+4. Lancer l'application
+   ```sh
+   uv run python -m uvicorn main:app --reload --host 127.0.0.1 --port 7860
+   ```
+   
+5. tester la santé
+   ```sh
+   Invoke-RestMethod http://127.0.0.1:7860/health
+   ```
+
+### Déploiement Hugging Face (Docker Space)
+Vous pouvez tester l'API sur le Space HuggingFace en cliquant ici [huggingface-space]
+- Le conteneur démarre avec uvicorn main:app sur le port 7860.
+- APP_MODE=huggingface dans les Variables du Space.
+- APP_MODE n'est pas local, aucune opération DB n'est exécutée.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+<!-- USAGE EXAMPLES -->
+## Usage
+
+Use this space to show useful examples of how a project can be used. Additional screenshots, code examples and demos work well in this space. You may also link to more resources.
+
+_For more examples, please refer to the [Documentation](https://example.com)_
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- MARKDOWN LINKS & IMAGES -->
+<!-- https://www.markdownguide.org/basic-syntax/#reference-style-links -->
+[huggingface-space]: https://huggingface.co/spaces/leskimou/openclassrooms_projet5
