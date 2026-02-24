@@ -26,6 +26,9 @@ app_port: 7860
       <a href="#vue-densemble">Vue d'ensemble</a>
     </li>
     <li>
+      <a href="#modele-expose">Modèle exposé</a>
+    </li>
+    <li>
       <a href="#architecture">Architecture</a>
       <ul>
         <li><a href="#schema-uml-interactions-api--bdd">Schéma UML (interactions API / BDD)</a></li>
@@ -39,7 +42,6 @@ app_port: 7860
       </ul>
     </li>
     <li><a href="#contrat-api">Contrat API</a></li>
-    <li><a href="#ameliorations-proposees">Améliorations proposées</a></li>
   </ol>
 </details>
 
@@ -54,11 +56,33 @@ L'application expose :
 - une UI Gradio montée dans FastAPI,
 - un mode d'exécution piloté par `APP_MODE` pour activer ou non les interactions avec la base de données.
 
-Endpoints principaux :
+Points d'entrée principaux :
 - `GET /health` : statut applicatif,
 - `POST /predict` : prédiction sur un batch d'enregistrements,
-- `/gradio` : interface utilisateur Gradio.
+- `/gradio` : interface utilisateur Gradio,
 - `/docs` : documentation interactive Swagger
+
+## Modèle exposé
+
+Le modèle déployé est un **Balanced Random Forest** optimisé avec un score pondéré métier :
+
+\[
+Score\_pondéré = 0.30 \times Recall + 0.50 \times F1 + 0.20 \times Accuracy
+\]
+
+### Métriques de performance
+
+| Métrique | Valeur |
+|---|---|
+| Recall | 0.64 |
+| Precision | 0.42 |
+| Accuracy | 0.64 |
+| Score pondéré | 0.61 |
+| AUC-ROC | 0.76 |
+
+### Origine des données d'entraînement
+
+Le modèle a été entraîné sur des données provenant du département des ressources humaines de l'entreprise, avec environ 1 400 échantillons au total. Chaque échantillon comporte des informations sur les caractéristiques de l'employé (features demandées dans les enregistrements de l'API), ainsi qu'une variable cible indiquant si celui-ci est encore présent ou non dans l'entreprise.
 
 ## Architecture
 
@@ -74,7 +98,7 @@ Endpoints principaux :
 
 ## Démarrage
 
-Ce modèle peut s'utiliser de deux manières :
+Ce modèle peut être utilisé de deux manières :
 - en déploiement local,
 - via Hugging Face.
 
