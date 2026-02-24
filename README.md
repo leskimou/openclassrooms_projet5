@@ -20,10 +20,10 @@ app_port: 7860
   <summary>Sommaire</summary>
   <ol>
     <li>
-      <a href="#a-propos-du-projet">À propos du projet</a>
+      <a href="#apropos">À propos du projet</a>
     </li>
     <li>
-      <a href="#vue-densemble">Vue d'ensemble</a>
+      <a href="#vue-ensemble">Vue d'ensemble</a>
     </li>
     <li>
       <a href="#modele-expose">Modèle exposé</a>
@@ -31,7 +31,8 @@ app_port: 7860
     <li>
       <a href="#architecture">Architecture</a>
       <ul>
-        <li><a href="#schema-uml-interactions-api--bdd">Schéma UML (interactions API / BDD)</a></li>
+        <li><a href="#schema-uml">Schéma UML (interactions API / BDD)</a></li>
+        <li><a href="#diagramme-sequence">Diagramme de séquence</a></li>
       </ul>
     </li>
     <li>
@@ -45,10 +46,12 @@ app_port: 7860
   </ol>
 </details>
 
+<a id="apropos"></a>
 ## À propos du projet
 
 Scénario : après avoir créé un modèle à la demande du département des ressources humaines afin d'établir les causes d'attrition du personnel au sein de l'entreprise et de prédire le risque de départ d'un employé, l'objectif est désormais de déployer ce modèle de machine learning en production.
 
+<a id="vue-ensemble"></a>
 ## Vue d'ensemble
 
 L'application expose :
@@ -62,6 +65,7 @@ Points d'entrée principaux :
 - `/gradio` : interface utilisateur Gradio,
 - `/docs` : documentation interactive Swagger
 
+<a id="modele-expose"></a>
 ## Modèle exposé
 
 Le modèle déployé est un **Balanced Random Forest** optimisé avec un score pondéré métier :
@@ -84,18 +88,22 @@ Score\_pondéré = 0.30 \times Recall + 0.50 \times F1 + 0.20 \times Accuracy
 
 Le modèle a été entraîné sur des données provenant du département des ressources humaines de l'entreprise, avec environ 1 400 échantillons au total. Chaque échantillon comporte des informations sur les caractéristiques de l'employé (features demandées dans les enregistrements de l'API), ainsi qu'une variable cible indiquant si celui-ci est encore présent ou non dans l'entreprise.
 
+<a id="architecture"></a>
 ## Architecture
 
+<a id="schema-uml"></a>
 ### Schéma UML (interactions API / BDD)
 
 ![Schéma UML - interactions API et base de données](docs/schema_uml.png)
 
+<a id="diagramme-sequence"></a>
 ### Diagramme de séquence (flux de prédiction)
 
 ![Diagramme de séquence - API, modèle et base de données](docs/sequence_diagramme.png)
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
+<a id="demarrage"></a>
 ## Démarrage
 
 Ce modèle peut être utilisé de deux manières :
@@ -113,12 +121,14 @@ Le comportement est piloté par la variable `APP_MODE`.
   - désactive toute interaction avec une base de données,
   - API et UI restent disponibles.
 
+<a id="prerequis"></a>
 ### Prérequis
 
 - Python 3.12
 - `uv`
 - PostgreSQL accessible avec les identifiants configurés
 
+<a id="installation"></a>
 ### Installation
 
 #### Déploiement local
@@ -171,6 +181,7 @@ Tu peux tester l'API sur le Space Hugging Face : [huggingface-space]
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
+<a id="contrat-api"></a>
 ## Contrat API
 
 ### `GET /health`
