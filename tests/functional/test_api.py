@@ -83,3 +83,43 @@ def test_predict_returns_422_when_feature_has_invalid_type(client: TestClient) -
 
 	assert response.status_code == 422
 	assert "doit être un nombre" in response.text
+
+
+def test_resolve_env_file_path_returns_root_env_if_present(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+	monkeypatch.setattr(main, "ROOT_DIR", tmp_path)
+	root_env = tmp_path / ".env"
+	root_env.write_text("APP_MODE=local\n", encoding="utf-8")
+
+	resolved = main._resolve_env_file_path()
+
+	assert resolved == root_env
+
+
+def test_resolve_env_file_path_returns_none_if_missing(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+	monkeypatch.setattr(main, "ROOT_DIR", tmp_path)
+
+	resolved = main._resolve_env_file_path()
+
+	assert resolved is None
+
+
+def test_resolve_env_file_path_falls_back_to_confs_env(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+	monkeypatch.setattr(main, "ROOT_DIR", tmp_path)
+	confs_env = tmp_path / "confs" / "dev" / ".env"
+	confs_env.parent.mkdir(parents=True, exist_ok=True)
+	confs_env.write_text("APP_MODE=local\n", encoding="utf-8")
+
+	resolved = main._resolve_env_file_path()
+
+	assert resolved == confs_env
+
+
+def test_resolve_env_file_path_falls_back_to_confs_env_pattern(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+	monkeypatch.setattr(main, "ROOT_DIR", tmp_path)
+	confs_env = tmp_path / "confs" / "dev" / ".env.dev"
+	confs_env.parent.mkdir(parents=True, exist_ok=True)
+	confs_env.write_text("APP_MODE=local\n", encoding="utf-8")
+
+	resolved = main._resolve_env_file_path()
+
+	assert resolved == confs_env
