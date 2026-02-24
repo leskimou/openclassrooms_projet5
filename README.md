@@ -29,17 +29,17 @@ app_port: 7860
       <a href="#modele-expose">Modèle exposé</a>
     </li>
     <li>
-      <a href="#architecture">Architecture</a>
-      <ul>
-        <li><a href="#schema-uml">Schéma UML (interactions API / BDD)</a></li>
-        <li><a href="#diagramme-sequence">Diagramme de séquence</a></li>
-      </ul>
-    </li>
-    <li>
       <a href="#demarrage">Démarrage</a>
       <ul>
         <li><a href="#prerequis">Prérequis</a></li>
         <li><a href="#installation">Installation</a></li>
+      </ul>
+    </li>
+    <li>
+      <a href="#architecture">Architecture</a>
+      <ul>
+        <li><a href="#schema-uml">Schéma UML (interactions API / BDD)</a></li>
+        <li><a href="#diagramme-sequence">Diagramme de séquence</a></li>
       </ul>
     </li>
     <li><a href="#contrat-api">Contrat API</a></li>
@@ -93,21 +93,6 @@ Le modèle déployé est un **Balanced Random Forest** optimisé avec un score p
 ### Origine des données d'entraînement
 
 Le modèle a été entraîné sur des données provenant du département des ressources humaines de l'entreprise, avec environ 1 400 échantillons au total. Chaque échantillon comporte des informations sur les caractéristiques de l'employé (features demandées dans les enregistrements de l'API), ainsi qu'une variable cible indiquant si celui-ci est encore présent ou non dans l'entreprise.
-
-<a id="architecture"></a>
-## Architecture
-
-<a id="schema-uml"></a>
-### Schéma UML (interactions API / BDD)
-
-![Schéma UML - interactions API et base de données](docs/schema_uml.png)
-
-<a id="diagramme-sequence"></a>
-### Diagramme de séquence (flux de prédiction)
-
-![Diagramme de séquence - API, modèle et base de données](docs/sequence_diagramme.png)
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 <a id="demarrage"></a>
 ## Démarrage
@@ -184,6 +169,19 @@ Tu peux tester l'API sur le Space Hugging Face : [huggingface-space]
 - Swagger UI : [swagger-docs]
 - ReDoc : [redoc-docs]
 - OpenAPI JSON : [openapi-json]
+
+<a id="architecture"></a>
+## Architecture
+
+<a id="schema-uml"></a>
+### Schéma UML (interactions API / BDD)
+
+![Schéma UML - interactions API et base de données](docs/schema_uml.png)
+
+<a id="diagramme-sequence"></a>
+### Diagramme de séquence (flux de prédiction)
+
+![Diagramme de séquence - API, modèle et base de données](docs/sequence_diagramme.png)
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
