@@ -70,9 +70,7 @@ Points d'entrée principaux :
 
 Le modèle déployé est un **Balanced Random Forest** optimisé avec un score pondéré métier :
 
-\[
-Score\_pondéré = 0.30 \times Recall + 0.50 \times F1 + 0.20 \times Accuracy
-\]
+`Score pondéré = 0.30 x Recall + 0.50 x F1 + 0.20 x Accuracy`
 
 ### Métriques de performance
 
@@ -83,6 +81,14 @@ Score\_pondéré = 0.30 \times Recall + 0.50 \times F1 + 0.20 \times Accuracy
 | Accuracy | 0.64 |
 | Score pondéré | 0.61 |
 | AUC-ROC | 0.76 |
+
+### Matrice de confusion
+
+![Matrice de confusion - Balanced Random Forest](docs/OC_p4_BRF_matriceconfusion.png)
+
+### Beeswarm (importance des variables)
+
+![Beeswarm - Balanced Random Forest](docs/OC_p4_BRF_besswarm.png)
 
 ### Origine des données d'entraînement
 
