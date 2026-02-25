@@ -44,6 +44,16 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           rm -rf docs
           rm -f README.md
+          cat <<'EOF' > README.md
+          ---
+          title: openclassrooms_projet5
+          sdk: docker
+          app_port: 7860
+          pinned: false
+          ---
+
+          API FastAPI + UI Gradio (Docker Space)
+          EOF
           git add -A
           git commit -m "Deploy snapshot ${GITHUB_SHA}"
 
