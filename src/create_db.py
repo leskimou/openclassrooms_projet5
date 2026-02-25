@@ -1,6 +1,7 @@
 from pathlib import Path
 import json
 import os
+import re
 import uuid
 import pandas as pd
 from dotenv import load_dotenv
@@ -15,6 +16,7 @@ from sqlalchemy import (
     Table,
     create_engine,
 )
+from sqlalchemy import inspect
 from sqlalchemy.engine import URL
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import JSONB
@@ -75,7 +77,7 @@ def _resolve_env_file_path() -> Path | None:
     return None
 
 
-def build_dataset(data_dir: Path = DATA_DIR) -> pd.DataFrame:
+def _build_merged_source_dataset(data_dir: Path = DATA_DIR) -> pd.DataFrame:
     eval_df = pd.read_csv(data_dir / "extrait_eval.csv")
     sirh_df = pd.read_csv(data_dir / "extrait_sirh.csv")
     sondage_df = pd.read_csv(data_dir / "extrait_sondage.csv")
@@ -87,6 +89,11 @@ def build_dataset(data_dir: Path = DATA_DIR) -> pd.DataFrame:
         .merge(sondage_df, left_on="eval_number", right_on="code_sondage", how="inner")
     )
     merge_df.drop(columns=["eval_number", "id_employee", "code_sondage"], inplace=True)
+    return merge_df
+
+
+def build_dataset(data_dir: Path = DATA_DIR) -> pd.DataFrame:
+    merge_df = _build_merged_source_dataset(data_dir=data_dir)
 
     merge_df["augementation_salaire_precedente"] = (
         merge_df["augementation_salaire_precedente"].str.replace("%", "", regex=False).astype(int)
@@ -123,6 +130,11 @@ def build_dataset(data_dir: Path = DATA_DIR) -> pd.DataFrame:
     merge_df.drop(columns=col_to_drop_after, inplace=True)
 
     return merge_df
+
+
+def build_features_engineering_variables(data_dir: Path = DATA_DIR) -> pd.DataFrame:
+    merge_df = _build_merged_source_dataset(data_dir=data_dir)
+    return merge_df[["niveau_hierarchique_poste", "annee_experience_totale"]].copy()
 
 
 def get_engine_from_env():
@@ -240,10 +252,110 @@ def full_dataset_to_bdd(data_dir: Path = DATA_DIR, table_name: str = "dataset_fi
     return merge_df
 
 
-# Créer une fonction qui fait une requete sql pour aller chercher le salaire et le niveau hiérarchique puis qui va donner le salaire moyen par niveau hiérarchique
+def features_engineering_variables_to_bdd(
+    data_dir: Path = DATA_DIR,
+    table_name: str = "features_engineering_variable",
+) -> pd.DataFrame:
+    features_df = build_features_engineering_variables(data_dir=data_dir)
+
+    engine = get_engine_from_env()
+    features_df.to_sql(name=table_name, con=engine, if_exists="replace", index=False)
+
+    print(f"Features engineering envoyées avec succès dans la table '{table_name}'")
+    return features_df
 
 
-if __name__ == "__main__":
-    full_dataset_to_bdd()
+def init_feature_tables_if_missing(
+    engine,
+    data_dir: Path = DATA_DIR,
+    dataset_table_name: str = "dataset_final",
+    features_table_name: str = "features_engineering_variable",
+) -> None:
+    inspector = inspect(engine)
+
+    if not inspector.has_table(dataset_table_name):
+        build_dataset(data_dir=data_dir).to_sql(
+            name=dataset_table_name,
+            con=engine,
+            if_exists="replace",
+            index=False,
+        )
+
+    if not inspector.has_table(features_table_name):
+        build_features_engineering_variables(data_dir=data_dir).to_sql(
+            name=features_table_name,
+            con=engine,
+            if_exists="replace",
+            index=False,
+        )
+
+
+def build_payload_from_bdd_row(
+    row_number: int,
+    table_name: str = "dataset_final",
+    features_table_name: str = "features_engineering_variable",
+    engine=None,
+) -> dict:
+    if row_number < 1:
+        raise ValueError("row_number doit être >= 1")
+
+    if not re.fullmatch(r"[A-Za-z0-9_]+", table_name):
+        raise ValueError("table_name invalide")
+
+    if not re.fullmatch(r"[A-Za-z0-9_]+", features_table_name):
+        raise ValueError("features_table_name invalide")
+
+    db_engine = engine if engine is not None else get_engine_from_env()
+    offset = row_number - 1
+    dataset_query = f'SELECT * FROM "{table_name}" LIMIT 1 OFFSET {offset}'
+    features_query = f'SELECT * FROM "{features_table_name}" LIMIT 1 OFFSET {offset}'
+
+    dataset_row_df = pd.read_sql_query(dataset_query, con=db_engine)
+    features_row_df = pd.read_sql_query(features_query, con=db_engine)
+
+    if dataset_row_df.empty:
+        raise IndexError(
+            f"Aucune ligne trouvée pour row_number={row_number} dans la table '{table_name}'"
+        )
+
+    if features_row_df.empty:
+        raise IndexError(
+            f"Aucune ligne trouvée pour row_number={row_number} dans la table '{features_table_name}'"
+        )
+
+    dataset_row_df = dataset_row_df.iloc[:, :-2]
+    dataset_row = dataset_row_df.iloc[0]
+    features_row = features_row_df.iloc[0]
+    record: dict[str, float | str | None] = {}
+
+    required_feature_columns = ["niveau_hierarchique_poste", "annee_experience_totale"]
+    for col in required_feature_columns:
+        if col not in features_row.index:
+            raise KeyError(
+                f"La colonne '{col}' est absente de la table '{features_table_name}'"
+            )
+
+    for feature_name, spec in FEATURE_SPECS.items():
+        if feature_name in dataset_row.index:
+            value = dataset_row[feature_name]
+        elif feature_name in required_feature_columns:
+            value = features_row[feature_name]
+        else:
+            raise KeyError(
+                f"La colonne '{feature_name}' est absente des tables '{table_name}' et '{features_table_name}'"
+            )
+
+        if pd.isna(value):
+            record[feature_name] = None
+            continue
+
+        feature_type = str(spec.get("type", "")).strip().lower()
+        if feature_type == "number":
+            record[feature_name] = float(value)
+        else:
+            record[feature_name] = str(value)
+
+    return {"records": [record]}
+
 
 

@@ -26,7 +26,12 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from src.create_db import get_engine_from_env, init_api_logging_tables, log_request_and_prediction
+from src.create_db import (
+    get_engine_from_env,
+    init_api_logging_tables,
+    init_feature_tables_if_missing,
+    log_request_and_prediction,
+)
 from src.model import ARTIFACT_MODEL, predict_with_artifact_model
 from src.utils import preprocess_record_for_model
 
@@ -243,6 +248,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     try:
         _db_engine = get_engine_from_env()
         init_api_logging_tables(_db_engine)
+        init_feature_tables_if_missing(_db_engine)
     except Exception:
         _db_engine = None
     yield
