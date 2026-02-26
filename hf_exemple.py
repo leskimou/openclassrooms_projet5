@@ -1,6 +1,11 @@
+import os
+from dotenv import load_dotenv
 import requests
 
+load_dotenv(dotenv_path="confs/dev/.env.dev")
+
 BASE_URL = "https://leskimou-openclassrooms-projet5.hf.space"
+HEADERS = {"X-API-Key": os.environ["API_KEY"]}
 
 def main() -> None:
     payload = {
@@ -34,7 +39,7 @@ def main() -> None:
     health = requests.get(f"{BASE_URL}/health", timeout=30)
     print("health:", health.status_code, health.text)
 
-    resp = requests.post(f"{BASE_URL}/predict", json=payload, timeout=60)
+    resp = requests.post(f"{BASE_URL}/predict", json=payload, headers=HEADERS, timeout=60)
     resp.raise_for_status()
     print(resp.json())
 

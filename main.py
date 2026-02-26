@@ -5,7 +5,8 @@ API FastAPI + UI Gradio
 Objectif :
 - Exposer une API /predict (JSON) qui appelle un modèle scikit-learn sérialisé en joblib
 - Exposer une interface web Gradio avec 1 champ par variable
-- Définir l’interface (types, modalités, ordre) via artifacts/input_schema.json
+- Définir l'interface (types, modalités, ordre) via artifacts/input_schema.json
+- Authentification par clé API partagée (header X-API-Key)
 
 Exécution (exemples) :
 - Avec uv : uv run python -m uvicorn main:app --reload
@@ -22,8 +23,9 @@ from typing import Dict, List, Union, Any, AsyncIterator
 import pandas as pd
 import gradio as gr
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Security, status
 from fastapi.responses import RedirectResponse
+from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.create_db import (
@@ -70,23 +72,33 @@ IS_LOCAL_MODE = APP_MODE == "local"
 
 
 # ---------------------------------------------------------------------
+# AUTH — Clé API partagée
+# ---------------------------------------------------------------------
+
+API_KEY: str = os.environ["API_KEY"]
+
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+def verify_api_key(key: str = Security(api_key_header)) -> None:
+    if key != API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Clé API manquante ou invalide",
+        )
+
+
+# ---------------------------------------------------------------------
 # 1) Chargement des artifacts
 # ---------------------------------------------------------------------
 
 ARTIFACTS_DIR = Path("artifacts")
 SCHEMA_PATH = ARTIFACTS_DIR / "input_schema.json"
 
-# Charge le modèle une seule fois au démarrage de l’app
 model = ARTIFACT_MODEL
 
 
 def _normalize_input_schema(raw_schema: dict[str, Any]) -> dict[str, Any]:
-    """
-    Normalise le schéma d'entrée :
-    - corrige la clé "colums_order" -> "columns_order" si besoin
-    - supprime les espaces parasites sur les noms de features
-    - garantit que columns_order contient toutes les features
-    """
     features_raw = raw_schema.get("features", {})
     if not isinstance(features_raw, dict):
         raise ValueError("Le schéma d'entrée est invalide : 'features' doit être un objet.")
@@ -123,16 +135,13 @@ REQUIRED_FEATURES_SET: set[str] = set(REQUIRED_FEATURES_ORDER)
 
 
 # ---------------------------------------------------------------------
-# 2) Schémas Pydantic pour l’API /predict
+# 2) Schémas Pydantic pour l'API /predict
 # ---------------------------------------------------------------------
 
-# Valeurs acceptées dans le JSON d'entrée
 Value = Union[str, int, float]
 
 class PredictRequest(BaseModel):
-    # "extra=forbid" => refuse les champs inattendus au niveau du modèle Pydantic
     model_config = ConfigDict(extra="forbid")
-    # records = liste de lignes (chaque ligne = dict feature->value)
     records: List[Dict[str, Value]] = Field(..., min_length=1)
 
     @model_validator(mode="after")
@@ -149,7 +158,6 @@ class PredictRequest(BaseModel):
                 errors.append(f"records[{idx}] features inattendues: {extra_features}")
 
             if missing_features:
-                # Impossible de vérifier les types pour les champs absents
                 continue
 
             for feature, spec in FEATURE_SPECS.items():
@@ -189,14 +197,12 @@ class PredictRequest(BaseModel):
 
 class PredictResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    # proba_leave = probabilité de la classe 1 ("quitte l’entreprise")
     proba_leave: List[float]
-    # label = 1 si proba >= 0.5 sinon 0
     label: List[int]
 
 
 # ---------------------------------------------------------------------
-# 3) Helpers : schema d’inputs (pour la UI) + préparation DataFrame
+# 3) Helpers
 # ---------------------------------------------------------------------
 
 def _load_input_schema(schema_path: Path = SCHEMA_PATH) -> dict[str, Any]:
@@ -205,25 +211,12 @@ def _load_input_schema(schema_path: Path = SCHEMA_PATH) -> dict[str, Any]:
 
 
 def _expected_model_columns() -> list[str]:
-    """
-    Récupère les colonnes attendues par le modèle avec feature_names_in_. Ça permet de reconstruire X dans le bon ordre.
-    """
     if hasattr(model, "feature_names_in_"):
         return [str(c) for c in list(getattr(model, "feature_names_in_"))]
     return []
 
 
 def _to_model_dataframe(record: dict[str, Any]) -> pd.DataFrame:
-    """
-    Transforme un record (dict) en DataFrame prêt pour predict_proba.
-
-    - Si le modèle fournit feature_names_in_ :
-        - on ordonne exactement les colonnes comme attendu
-        - on ajoute les colonnes manquantes à None
-        - on ignore les colonnes en trop
-    - Sinon :
-        - on crée un DataFrame avec les clés fournies
-    """
     expected = _expected_model_columns()
 
     if expected:
@@ -236,6 +229,7 @@ def _to_model_dataframe(record: dict[str, Any]) -> pd.DataFrame:
 # ---------------------------------------------------------------------
 # 4) App FastAPI
 # ---------------------------------------------------------------------
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     _ = _app
@@ -258,27 +252,42 @@ app = FastAPI(lifespan=lifespan)
 
 _db_engine = None
 
+
+# ---------------------------------------------------------------------
+# Routes publiques
+# ---------------------------------------------------------------------
+
 @app.get("/")
 def root() -> RedirectResponse:
     return RedirectResponse(url="/gradio/")
 
+
 @app.get("/health")
 def health():
-    # Endpoint simple pour vérifier que l'app tourne
     return {"status": "ok"}
 
 
-@app.post("/predict", response_model=PredictResponse)
-def predict(payload: PredictRequest, request: Request):
+# ---------------------------------------------------------------------
+# Route protégée
+# ---------------------------------------------------------------------
+
+@app.post("/predict", response_model=PredictResponse, tags=["predict"])
+def predict(
+    payload: PredictRequest,
+    request: Request,
+    _: None = Security(verify_api_key),  # ← Protection clé API
+):
+    """
+    Prédit la probabilité de départ d'un employé.
+    Nécessite le header : X-API-Key: <votre_clé>
+    """
     try:
         processed_records = [preprocess_record_for_model(rec) for rec in payload.records]
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    # Convertit la liste de records en DataFrame en respectant les colonnes attendues
     expected = _expected_model_columns()
     if expected:
-        # On aligne chaque record sur les colonnes attendues
         rows = [{col: rec.get(col, None) for col in expected} for rec in processed_records]
         X = pd.DataFrame(rows, columns=expected)
     else:
@@ -286,7 +295,6 @@ def predict(payload: PredictRequest, request: Request):
 
     proba, labels = predict_with_artifact_model(X=X, threshold=0.5)
 
-    # request + prediction
     if _db_engine is not None:
         log_request_and_prediction(
             _db_engine,
@@ -303,18 +311,16 @@ def predict(payload: PredictRequest, request: Request):
 
 
 # ---------------------------------------------------------------------
-# 5) UI Gradio (1 champ par variable, ordre via columns_order)
+# 5) UI Gradio (publique — pas de clé API)
 # ---------------------------------------------------------------------
 
 def _build_gradio_app() -> gr.Blocks:
     schema = _load_input_schema()
     features: dict[str, Any] = schema["features"]
 
-    # Ordre d’affichage = columns_order (et on garde seulement celles présentes dans features)
     columns_order = schema.get("columns_order")
     cols_ui = [c for c in columns_order if c in features]
 
-    # Defaults UI
     defaults: dict[str, Any] = {}
     for c in cols_ui:
         t = str(features[c].get("type", "text"))
@@ -325,20 +331,16 @@ def _build_gradio_app() -> gr.Blocks:
             defaults[c] = None
 
     def predict_from_form(*values):
-        # Reconstruit un record à partir des champs Gradio
         record = {col: val for col, val in zip(cols_ui, values)}
 
         try:
             processed_record = preprocess_record_for_model(record)
-            # Aligne ce record sur les colonnes attendues par le modèle
             X = _to_model_dataframe(processed_record)
 
-            # Prédiction
             proba_list, label_list = predict_with_artifact_model(X=X, threshold=0.5)
             proba = float(proba_list[0])
             label = int(label_list[0])
 
-            # Log en base (mêmes tables que l'API)
             if _db_engine is not None:
                 log_request_and_prediction(
                     _db_engine,
@@ -355,8 +357,7 @@ def _build_gradio_app() -> gr.Blocks:
 
     with gr.Blocks() as demo:
         gr.Markdown("## Prédiction de départ d'un employé (UI Gradio)")
-      
-        # Génère 1 composant par variable selon son type
+
         inputs = []
         for col in cols_ui:
             f = features[col]
@@ -365,7 +366,6 @@ def _build_gradio_app() -> gr.Blocks:
             if t == "number":
                 inputs.append(gr.Number(value=defaults[col], label=col))
             elif t == "category":
-                # Choix unique parmi des modalités (plus simple et fiable pour ton modèle)
                 inputs.append(gr.Dropdown(choices=f.get("choices", []), value=defaults[col], label=col))
 
         btn = gr.Button("Prédire")
@@ -376,6 +376,6 @@ def _build_gradio_app() -> gr.Blocks:
 
     return demo
 
-# Monte Gradio dans FastAPI sous /gradio
+
 gradio_app = _build_gradio_app()
 app = gr.mount_gradio_app(app, gradio_app, path="/gradio")
