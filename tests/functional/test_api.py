@@ -7,6 +7,9 @@ from fastapi.testclient import TestClient
 
 import main
 
+TEST_API_KEY = "test-api-key"
+AUTH_HEADERS = {"X-API-Key": TEST_API_KEY}
+
 
 def _build_valid_record() -> dict[str, Any]:
 	record: dict[str, Any] = {}
@@ -24,8 +27,10 @@ def _build_valid_record() -> dict[str, Any]:
 
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
+	monkeypatch.setattr(main, "API_KEY", TEST_API_KEY)  # ← clé de test
 	monkeypatch.setattr(main, "get_engine_from_env", lambda: None)
 	monkeypatch.setattr(main, "init_api_logging_tables", lambda _engine: None)
+	monkeypatch.setattr(main, "init_feature_tables_if_missing", lambda _engine: None)
 	monkeypatch.setattr(
 		main,
 		"predict_with_artifact_model",
@@ -46,7 +51,7 @@ def test_health_returns_ok(client: TestClient) -> None:
 def test_predict_returns_proba_and_label(client: TestClient) -> None:
 	payload = {"records": [_build_valid_record()]}
 
-	response = client.post("/predict", json=payload)
+	response = client.post("/predict", json=payload, headers=AUTH_HEADERS)
 
 	assert response.status_code == 200
 	body = response.json()
@@ -57,13 +62,29 @@ def test_predict_returns_proba_and_label(client: TestClient) -> None:
 	assert body["label"][0] in (0, 1)
 
 
+def test_predict_returns_401_without_api_key(client: TestClient) -> None:
+	payload = {"records": [_build_valid_record()]}
+
+	response = client.post("/predict", json=payload)  # pas de header
+
+	assert response.status_code == 401
+
+
+def test_predict_returns_401_with_wrong_api_key(client: TestClient) -> None:
+	payload = {"records": [_build_valid_record()]}
+
+	response = client.post("/predict", json=payload, headers={"X-API-Key": "wrong-api-key"})
+
+	assert response.status_code == 401
+
+
 def test_predict_returns_422_when_record_has_missing_key(client: TestClient) -> None:
 	record = _build_valid_record()
 	missing_feature = next(iter(main.REQUIRED_FEATURES_ORDER))
 	record.pop(missing_feature)
 	payload = {"records": [record]}
 
-	response = client.post("/predict", json=payload)
+	response = client.post("/predict", json=payload, headers=AUTH_HEADERS)
 
 	assert response.status_code == 422
 	assert "features manquantes" in response.text
@@ -79,7 +100,7 @@ def test_predict_returns_422_when_feature_has_invalid_type(client: TestClient) -
 	record[numeric_feature] = "not-a-number"
 	payload = {"records": [record]}
 
-	response = client.post("/predict", json=payload)
+	response = client.post("/predict", json=payload, headers=AUTH_HEADERS)
 
 	assert response.status_code == 422
 	assert "doit être un nombre" in response.text

@@ -11,6 +11,15 @@ def _mock_input_frames():
         {
             "id_employee": [1, 2],
             "augementation_salaire_precedente": ["10%", "5%"],
+            "revenu_mensuel": [3000, 5000],
+            "annee_experience_totale": [4, 9],
+            "annees_dans_l_entreprise": [2, 6],
+            "annees_dans_le_poste_actuel": [1, 2],
+        }
+    )
+    sondage_df = pd.DataFrame(
+        {
+            "code_sondage": [1, 2],
             "nombre_heures_travailless": [40, 38],
             "nombre_employee_sous_responsabilite": [2, 1],
             "ayant_enfants": ["Oui", "Non"],
@@ -19,14 +28,10 @@ def _mock_input_frames():
             "satisfaction_employee_equipe": [3, 5],
             "satisfaction_employee_equilibre_pro_perso": [2, 4],
             "note_evaluation_actuelle": [2, 3],
-            "niveau_hierarchique_poste": ["N1", "N1"],
-            "revenu_mensuel": [3000, 5000],
-            "annee_experience_totale": [4, 9],
-            "annees_dans_l_entreprise": [2, 6],
+            "niveau_hierarchique_poste": [1, 2],
             "annes_sous_responsable_actuel": [1, 2],
         }
     )
-    sondage_df = pd.DataFrame({"code_sondage": [1, 2]})
     return eval_df, sirh_df, sondage_df
 
 
@@ -186,3 +191,176 @@ def test_full_dataset_to_bdd(monkeypatch):
     out = create_db.full_dataset_to_bdd(Path("d"), "dataset_final")
     assert out is df
     df.to_sql.assert_called_once()
+
+
+def test_build_features_engineering_variables(monkeypatch):
+    eval_df, sirh_df, sondage_df = _mock_input_frames()
+
+    def fake_read_csv(path):
+        p = str(path)
+        if "eval" in p:
+            return eval_df.copy()
+        if "sirh" in p:
+            return sirh_df.copy()
+        if "sondage" in p:
+            return sondage_df.copy()
+        raise AssertionError("unexpected file")
+
+    monkeypatch.setattr(create_db.pd, "read_csv", fake_read_csv)
+
+    result = create_db.build_features_engineering_variables(Path("dummy"))
+
+    assert list(result.columns) == ["niveau_hierarchique_poste", "annee_experience_totale"]
+    assert result.shape == (2, 2)
+
+
+def test_features_engineering_variables_to_bdd(monkeypatch):
+    df = pd.DataFrame(
+        {
+            "niveau_hierarchique_poste": ["N1"],
+            "annee_experience_totale": [4],
+        }
+    )
+    df.to_sql = MagicMock()
+
+    monkeypatch.setattr(create_db, "build_features_engineering_variables", MagicMock(return_value=df))
+    monkeypatch.setattr(create_db, "get_engine_from_env", MagicMock(return_value="engine"))
+
+    out = create_db.features_engineering_variables_to_bdd(Path("d"), "features_engineering_variable")
+
+    assert out is df
+    df.to_sql.assert_called_once()
+
+
+def test_init_feature_tables_if_missing_creates_both_tables(monkeypatch):
+    engine = MagicMock()
+
+    inspector = MagicMock()
+    inspector.has_table = MagicMock(side_effect=[False, False])
+    monkeypatch.setattr(create_db, "inspect", MagicMock(return_value=inspector))
+
+    dataset_df = pd.DataFrame({"a": [1]})
+    dataset_df.to_sql = MagicMock()
+    monkeypatch.setattr(create_db, "build_dataset", MagicMock(return_value=dataset_df))
+
+    features_df = pd.DataFrame(
+        {
+            "niveau_hierarchique_poste": ["N1"],
+            "annee_experience_totale": [4],
+        }
+    )
+    features_df.to_sql = MagicMock()
+    monkeypatch.setattr(
+        create_db,
+        "build_features_engineering_variables",
+        MagicMock(return_value=features_df),
+    )
+
+    create_db.init_feature_tables_if_missing(engine)
+
+    dataset_df.to_sql.assert_called_once()
+    features_df.to_sql.assert_called_once()
+
+
+def test_init_feature_tables_if_missing_skips_existing_tables(monkeypatch):
+    engine = MagicMock()
+
+    inspector = MagicMock()
+    inspector.has_table = MagicMock(side_effect=[True, True])
+    monkeypatch.setattr(create_db, "inspect", MagicMock(return_value=inspector))
+
+    build_dataset_mock = MagicMock()
+    build_features_mock = MagicMock()
+    monkeypatch.setattr(create_db, "build_dataset", build_dataset_mock)
+    monkeypatch.setattr(create_db, "build_features_engineering_variables", build_features_mock)
+
+    create_db.init_feature_tables_if_missing(engine)
+
+    build_dataset_mock.assert_not_called()
+    build_features_mock.assert_not_called()
+
+
+def test_build_payload_from_bdd_row(monkeypatch):
+    dataset_features = [
+        feature
+        for feature in create_db.FEATURE_SPECS.keys()
+        if feature not in {"niveau_hierarchique_poste", "annee_experience_totale"}
+    ]
+    dataset_row: dict[str, float | str] = {}
+    for feature in dataset_features:
+        spec = create_db.FEATURE_SPECS[feature]
+        feature_type = str(spec.get("type", "")).strip().lower()
+        dataset_row[feature] = 1.0 if feature_type == "number" else "X"
+
+    dataset_row["_drop_col_1"] = 999.0
+    dataset_row["_drop_col_2"] = 888.0
+    dataset_df = pd.DataFrame([dataset_row])
+
+    features_df = pd.DataFrame(
+        [{"niveau_hierarchique_poste": 3, "annee_experience_totale": 7}]
+    )
+
+    def fake_read_sql_query(query, con):
+        _ = con
+        if '"dataset_final"' in query:
+            return dataset_df
+        if '"features_engineering_variable"' in query:
+            return features_df
+        raise AssertionError("unexpected query")
+
+    monkeypatch.setattr(create_db.pd, "read_sql_query", fake_read_sql_query)
+
+    payload = create_db.build_payload_from_bdd_row(1, engine="engine")
+
+    assert "records" in payload
+    assert len(payload["records"]) == 1
+    assert set(payload["records"][0].keys()) == set(create_db.FEATURE_SPECS.keys())
+    assert payload["records"][0]["niveau_hierarchique_poste"] == 3.0
+    assert payload["records"][0]["annee_experience_totale"] == 7.0
+
+
+def test_build_payload_from_bdd_row_raises_when_line_missing(monkeypatch):
+    def fake_read_sql_query(query, con):
+        _ = (query, con)
+        return pd.DataFrame()
+
+    monkeypatch.setattr(create_db.pd, "read_sql_query", fake_read_sql_query)
+
+    with pytest.raises(IndexError, match="Aucune ligne trouvée"):
+        create_db.build_payload_from_bdd_row(5, engine="engine")
+
+
+def test_build_payload_from_bdd_row_raises_when_row_number_invalid():
+    with pytest.raises(ValueError, match=">= 1"):
+        create_db.build_payload_from_bdd_row(0, engine="engine")
+
+
+def test_build_payload_from_bdd_row_raises_when_features_columns_missing(monkeypatch):
+    dataset_features = [
+        feature
+        for feature in create_db.FEATURE_SPECS.keys()
+        if feature not in {"niveau_hierarchique_poste", "annee_experience_totale"}
+    ]
+    dataset_row = {}
+    for feature in dataset_features:
+        spec = create_db.FEATURE_SPECS[feature]
+        feature_type = str(spec.get("type", "")).strip().lower()
+        dataset_row[feature] = 1.0 if feature_type == "number" else "X"
+    dataset_row["_drop_col_1"] = 1
+    dataset_row["_drop_col_2"] = 2
+
+    dataset_df = pd.DataFrame([dataset_row])
+    features_df = pd.DataFrame([{"niveau_hierarchique_poste": 2}])
+
+    def fake_read_sql_query(query, con):
+        _ = con
+        if '"dataset_final"' in query:
+            return dataset_df
+        if '"features_engineering_variable"' in query:
+            return features_df
+        raise AssertionError("unexpected query")
+
+    monkeypatch.setattr(create_db.pd, "read_sql_query", fake_read_sql_query)
+
+    with pytest.raises(KeyError, match="annee_experience_totale"):
+        create_db.build_payload_from_bdd_row(1, engine="engine")
