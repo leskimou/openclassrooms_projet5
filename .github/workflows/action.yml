@@ -23,6 +23,8 @@ jobs:
         uses: astral-sh/setup-uv@v4
 
       - name: Run tests with coverage
+        env:
+          API_KEY: ${{ secrets.API_KEY }}
         run: make test
 
   push-to-hf:
