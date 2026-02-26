@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
+from dotenv import load_dotenv
+
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 ARTIFACTS_DIR = ROOT_DIR / "artifacts"
@@ -59,4 +61,30 @@ def preprocess_record_for_model(
 	processed.pop("annee_experience_totale", None)
 	return processed
 
-   
+def load_env(root_dir: Path | None = None) -> None:
+    """
+    Cherche et charge le premier fichier .env trouvé dans l'arborescence du projet.
+    Priorité :
+    1. .env à la racine du projet
+    2. confs/**/.env
+    3. confs/**/.env.*
+    """
+    if root_dir is None:
+        root_dir = Path(__file__).resolve().parent.parent  # remonte à la racine depuis src/
+
+    root_env = root_dir / ".env"
+    if root_env.exists():
+        load_dotenv(dotenv_path=root_env, override=False)
+        return
+
+    confs_dir = root_dir / "confs"
+    if confs_dir.exists():
+        env_candidates = sorted(confs_dir.rglob(".env"))
+        if env_candidates:
+            load_dotenv(dotenv_path=env_candidates[0], override=False)
+            return
+
+        env_pattern_candidates = sorted(confs_dir.rglob(".env.*"))
+        if env_pattern_candidates:
+            load_dotenv(dotenv_path=env_pattern_candidates[0], override=False)
+            return

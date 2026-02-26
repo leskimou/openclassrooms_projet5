@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
 import main
+from src.utils import load_env
 
 TEST_API_KEY = "test-api-key"
 AUTH_HEADERS = {"X-API-Key": TEST_API_KEY}
@@ -27,7 +29,7 @@ def _build_valid_record() -> dict[str, Any]:
 
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
-	monkeypatch.setattr(main, "API_KEY", TEST_API_KEY)  # ← clé de test
+	monkeypatch.setattr(main, "API_KEY", TEST_API_KEY)
 	monkeypatch.setattr(main, "get_engine_from_env", lambda: None)
 	monkeypatch.setattr(main, "init_api_logging_tables", lambda _engine: None)
 	monkeypatch.setattr(main, "init_feature_tables_if_missing", lambda _engine: None)
@@ -40,6 +42,10 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
 	with TestClient(main.app) as test_client:
 		yield test_client
 
+
+# ---------------------------------------------------------------------
+# Tests API
+# ---------------------------------------------------------------------
 
 def test_health_returns_ok(client: TestClient) -> None:
 	response = client.get("/health")
@@ -65,7 +71,7 @@ def test_predict_returns_proba_and_label(client: TestClient) -> None:
 def test_predict_returns_401_without_api_key(client: TestClient) -> None:
 	payload = {"records": [_build_valid_record()]}
 
-	response = client.post("/predict", json=payload)  # pas de header
+	response = client.post("/predict", json=payload)
 
 	assert response.status_code == 401
 
@@ -106,41 +112,39 @@ def test_predict_returns_422_when_feature_has_invalid_type(client: TestClient) -
 	assert "doit être un nombre" in response.text
 
 
-def test_resolve_env_file_path_returns_root_env_if_present(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-	monkeypatch.setattr(main, "ROOT_DIR", tmp_path)
+# ---------------------------------------------------------------------
+# Tests load_env (migré depuis main._resolve_env_file_path)
+# ---------------------------------------------------------------------
+
+def test_load_env_loads_root_env_if_present(tmp_path) -> None:
 	root_env = tmp_path / ".env"
-	root_env.write_text("APP_MODE=local\n", encoding="utf-8")
+	root_env.write_text("TEST_VAR_ROOT=root\n", encoding="utf-8")
 
-	resolved = main._resolve_env_file_path()
+	load_env(root_dir=tmp_path)
 
-	assert resolved == root_env
-
-
-def test_resolve_env_file_path_returns_none_if_missing(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-	monkeypatch.setattr(main, "ROOT_DIR", tmp_path)
-
-	resolved = main._resolve_env_file_path()
-
-	assert resolved is None
+	assert os.getenv("TEST_VAR_ROOT") == "root"
 
 
-def test_resolve_env_file_path_falls_back_to_confs_env(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-	monkeypatch.setattr(main, "ROOT_DIR", tmp_path)
+def test_load_env_does_nothing_if_no_env_file(tmp_path) -> None:
+	# Ne doit pas lever d'exception
+	load_env(root_dir=tmp_path)
+
+
+def test_load_env_falls_back_to_confs_env(tmp_path) -> None:
 	confs_env = tmp_path / "confs" / "dev" / ".env"
 	confs_env.parent.mkdir(parents=True, exist_ok=True)
-	confs_env.write_text("APP_MODE=local\n", encoding="utf-8")
+	confs_env.write_text("TEST_VAR_CONFS=confs\n", encoding="utf-8")
 
-	resolved = main._resolve_env_file_path()
+	load_env(root_dir=tmp_path)
 
-	assert resolved == confs_env
+	assert os.getenv("TEST_VAR_CONFS") == "confs"
 
 
-def test_resolve_env_file_path_falls_back_to_confs_env_pattern(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-	monkeypatch.setattr(main, "ROOT_DIR", tmp_path)
+def test_load_env_falls_back_to_confs_env_pattern(tmp_path) -> None:
 	confs_env = tmp_path / "confs" / "dev" / ".env.dev"
 	confs_env.parent.mkdir(parents=True, exist_ok=True)
-	confs_env.write_text("APP_MODE=local\n", encoding="utf-8")
+	confs_env.write_text("TEST_VAR_PATTERN=pattern\n", encoding="utf-8")
 
-	resolved = main._resolve_env_file_path()
+	load_env(root_dir=tmp_path)
 
-	assert resolved == confs_env
+	assert os.getenv("TEST_VAR_PATTERN") == "pattern"
