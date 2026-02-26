@@ -1,9 +1,9 @@
 import os
 import requests
-from dotenv import load_dotenv
 from src.create_db import build_payload_from_bdd_row
+from src.utils import load_env
 
-load_dotenv(dotenv_path="confs/dev/.env.dev")
+load_env()
 
 BASE_URL = "http://127.0.0.1:7860"
 HEADERS = {"X-API-Key": os.environ["API_KEY"]}

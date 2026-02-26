@@ -101,11 +101,11 @@ Ce modèle peut être utilisé de deux manières :
 - en déploiement local,
 - via Hugging Face.
 
-Le comportement est piloté par la variable `APP_MODE`.
+Le comportement est piloté par la variable d'environnement `APP_MODE`.
 
 - `APP_MODE=local`
   - active la base de données,
-  - crée les tables `api_requests` et `api_predictions` au démarrage,
+  - crée les tables `dataset_final`, `features_engineering_variable`, `api_requests` et `api_predictions` au démarrage,
   - journalise les requêtes et prédictions.
 
 - `APP_MODE=huggingface` (ou `demo`)
@@ -163,6 +163,23 @@ Tu peux tester l'API sur le Space Hugging Face : [huggingface-space]
 - Le conteneur démarre avec `uvicorn main:app` sur le port `7860`.
 - `APP_MODE=huggingface` dans les variables du Space.
 - Lorsque `APP_MODE` n'est pas `local`, aucune opération avec la base de données n'est exécutée.
+
+Tu peux aussi utiliser l'API directement depuis un script comme présenté dans le fichier hf_exemple.
+
+## Authentification
+* En local :
+Vous devez configurez vous même la variable API_KEY dans le fichier .env. Vous pouvez générez une clef avec les commandes suivantes:
+```ssh
+python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+```.env
+API_KEY = votre_clef
+```
+
+* Hugging Face
+Si vous voulez utiliser l'API hébergée depuis Hugging Face dans un script, comme dans le fichier hf_exemple. Vous devez nous contacter pour que l'on vous partage la clef, que vous pourrez introduire en header dans vos requètes.
+
 
 #### Accès à la documentation API via Hugging Face
 

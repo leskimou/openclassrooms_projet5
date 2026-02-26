@@ -1,8 +1,8 @@
 import os
-from dotenv import load_dotenv
 import requests
+from src.utils import load_env
 
-load_dotenv(dotenv_path="confs/dev/.env.dev")
+load_env()
 
 BASE_URL = "https://leskimou-openclassrooms-projet5.hf.space"
 HEADERS = {"X-API-Key": os.environ["API_KEY"]}
